@@ -381,10 +381,24 @@ body {
 :root[data-theme="dark"] {
   /* 已预先做高斯模糊的静态图：背景固定，聊天滚动不再影响任何模糊层。 */
   --neo-backdrop-image: url("./assets/images/neon-ring-star-radial-bg-blurred.jpg");
+  --neo-backdrop-veil-start: rgba(3, 9, 13, 0.64);
   --neo-backdrop-veil: rgba(3, 9, 13, 0.5);
   --neo-surface-sidebar: rgba(8, 15, 19, 0.88);
   --neo-surface-panel: rgba(10, 18, 23, 0.68);
   --neo-surface-strong: rgba(8, 15, 20, 0.9);
+  --neo-timeline-overlay-start: rgba(7, 14, 19, 0.18);
+  --neo-timeline-overlay-end: rgba(7, 14, 19, 0.48);
+  --neo-composer-surface: rgba(7, 14, 19, 0.62);
+  --neo-composer-border: rgba(132, 247, 171, 0.22);
+  --neo-composer-shadow: 0 16px 42px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(132, 247, 171, 0.05);
+  --neo-composer-focus-border: rgba(132, 247, 171, 0.62);
+  --neo-composer-focus-shadow: 0 16px 42px rgba(0, 0, 0, 0.42), 0 0 0 3px rgba(132, 247, 171, 0.1), 0 0 22px rgba(64, 212, 120, 0.12);
+  --neo-drawer-surface: rgba(8, 15, 20, 0.88);
+  --neo-reply-avatar-fg: #06210f;
+  --neo-reply-avatar-shadow: 0 2px 10px rgba(32, 190, 94, 0.26);
+  --neo-opaque-surface: #0b141a;
+  --neo-titlebar-avatar-border: rgba(132, 247, 171, 0.52);
+  --neo-titlebar-avatar-ring: 0 0 0 2px rgba(5, 15, 11, 0.32);
   /* 顶栏与对话区共用同一档玻璃深度，让背景在主工作区连续透出。 */
   --neo-surface-chrome: rgba(10, 18, 23, 0.68);
   --neo-glass-border: rgba(167, 210, 190, 0.16);
@@ -393,7 +407,7 @@ body {
 
 :root[data-theme="dark"] body {
   background:
-    linear-gradient(120deg, rgba(3, 9, 13, 0.64), var(--neo-backdrop-veil)),
+    linear-gradient(120deg, var(--neo-backdrop-veil-start), var(--neo-backdrop-veil)),
     var(--neo-backdrop-image) center / cover fixed no-repeat;
 }
 
@@ -430,33 +444,28 @@ body {
 
 :root[data-theme="dark"] .message-timeline {
   /* 只叠暗色遮罩；底层图片已经预模糊，滚动时不会再产生局部滤镜痕迹。 */
-  background: linear-gradient(180deg, rgba(7, 14, 19, 0.18), rgba(7, 14, 19, 0.48));
+  background: linear-gradient(180deg, var(--neo-timeline-overlay-start), var(--neo-timeline-overlay-end));
 }
 
 :root[data-theme="dark"] .composer {
-  background: rgba(7, 14, 19, 0.62);
+  background: var(--neo-composer-surface);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
 
 :root[data-theme="dark"] .composer-box {
   background: var(--neo-surface-strong);
-  border-color: rgba(132, 247, 171, 0.22);
-  box-shadow:
-    0 16px 42px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(132, 247, 171, 0.05);
+  border-color: var(--neo-composer-border);
+  box-shadow: var(--neo-composer-shadow);
 }
 
 :root[data-theme="dark"] .composer-box:focus-within {
-  border-color: rgba(132, 247, 171, 0.62);
-  box-shadow:
-    0 16px 42px rgba(0, 0, 0, 0.42),
-    0 0 0 3px rgba(132, 247, 171, 0.1),
-    0 0 22px rgba(64, 212, 120, 0.12);
+  border-color: var(--neo-composer-focus-border);
+  box-shadow: var(--neo-composer-focus-shadow);
 }
 
 :root[data-theme="dark"] .detail-drawer {
-  background: rgba(8, 15, 20, 0.88);
+  background: var(--neo-drawer-surface);
   border-left: 1px solid var(--neo-glass-border);
   backdrop-filter: blur(22px) saturate(112%);
   -webkit-backdrop-filter: blur(22px) saturate(112%);
@@ -465,17 +474,11 @@ body {
 .neo-reply-avatar {
   width: 22px;
   height: 22px;
-  display: inline-grid;
+  display: block;
   flex: 0 0 auto;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--neo-avatar-bg, #35c45a);
-  color: #06210f;
-  box-shadow: 0 2px 10px rgba(32, 190, 94, 0.26);
-  font-family: var(--font-family-mono);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: var(--neo-reply-avatar-shadow, 0 2px 10px rgba(32, 190, 94, 0.26));
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -485,7 +488,7 @@ body {
   :root[data-theme="dark"] .detail-drawer {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background: #0b141a;
+    background: var(--neo-opaque-surface);
   }
 }
 button,
@@ -1118,15 +1121,12 @@ body.is-resizing .wechat-shell {
   -webkit-backdrop-filter: none;
   -webkit-app-region: drag;
 }
-.custom-titlebar-enabled .neon-titlebar-avatar {
+.custom-titlebar-enabled .neon-titlebar-app-mark {
   width: 26px;
   height: 26px;
   flex: 0 0 auto;
-  object-fit: cover;
-  object-position: center 20%;
-  border-radius: 50%;
-  border: 1px solid rgba(132, 247, 171, 0.52);
-  box-shadow: 0 0 0 2px rgba(5, 15, 11, 0.32);
+  object-fit: contain;
+  filter: drop-shadow(0 0 7px rgba(84, 232, 154, 0.24));
   -webkit-app-region: drag;
 }
 .custom-titlebar-enabled .titlebar-brand .brand-wordmark {
@@ -1134,6 +1134,8 @@ body.is-resizing .wechat-shell {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 衬线字标的视觉重心偏高，向下微调以对齐应用标的几何中心。 */
+  transform: translateY(2px);
 }
 .custom-titlebar-enabled .list-toolbar {
   height: 0;
@@ -3802,6 +3804,16 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+:root[data-theme="dark"] .turn-row-body {
+  padding-left: 13px;
+  border-left: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+}
+:root[data-theme="dark"] .turn-row-meta {
+  color: color-mix(in srgb, var(--color-text-tertiary) 78%, transparent);
+}
+:root[data-theme="dark"] .turn-row-agent {
+  color: color-mix(in srgb, var(--color-text-primary) 92%, var(--color-accent));
 }
 
 /* ---------- 执行过程折叠区域 ---------- */
@@ -6995,8 +7007,12 @@ body.is-composer-resizing .composer-resize-handle::after {
   width: 18px;
   height: 18px;
 }
-.composer-footer .btn-circle.send {
+.composer-footer .btn-circle.send:not(:disabled) {
   background: var(--color-accent);
+}
+.composer-footer .btn-circle.send:disabled {
+  background: color-mix(in srgb, var(--color-text-tertiary) 32%, var(--color-bg-muted));
+  color: color-mix(in srgb, var(--color-text-inverse) 68%, transparent);
 }
 .composer-footer .btn-circle.send:hover:not(:disabled) {
   background: var(--color-accent-strong);
@@ -9082,7 +9098,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   overflow: visible;
   flex-shrink: 0;
 }
-.session-status span {
+.session-status > span {
   display: inline-flex;
   align-items: center;
   min-width: 0;
@@ -9122,19 +9138,63 @@ body.is-composer-resizing .composer-resize-handle::after {
   );
   border-color: color-mix(in srgb, var(--color-brand-purple) 20%, transparent);
 }
-.session-status .cost-chip {
-  max-width: none;
+.session-status-details {
+  position: relative;
+  display: inline-flex;
   flex: 0 0 auto;
-  color: var(--color-warning);
-  background: color-mix(
-    in srgb,
-    var(--color-warning) 10%,
-    var(--color-bg-panel)
-  );
-  border-color: color-mix(in srgb, var(--color-warning) 20%, transparent);
-  font-weight: 600;
+  -webkit-app-region: no-drag;
+}
+.session-status-details-trigger {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-bg-panel) 82%, transparent);
+  color: var(--color-text-tertiary);
   font-family: var(--font-family-business);
+  font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-caption);
+  white-space: nowrap;
+}
+.session-status-details-trigger:hover,
+.session-status-details-trigger[aria-expanded="true"] {
+  border-color: var(--color-border-default);
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+.session-status-details-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.session-status-details-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 950;
+  min-width: 180px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+.session-status-details-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-4);
+  align-items: center;
+  min-height: 22px;
+}
+.session-status-details-row strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
 }
 /* Git 分支融入遥测胶囊列：是可点控件，因此保留 no-drag。 */
 .session-status-accessory {
@@ -9320,29 +9380,29 @@ body.is-composer-resizing .composer-resize-handle::after {
 
 .composer-toolbar {
   display: flex;
-  gap: var(--space-2);
+  gap: 6px;
   align-items: center;
-  padding: 10px 12px 6px 12px;
+  padding: 9px 12px 5px;
   flex-wrap: wrap;
 }
 .composer-toolbar button {
-  height: 26px;
-  border: 1px solid var(--color-border-subtle);
+  height: 24px;
+  border: 1px solid color-mix(in srgb, var(--color-border-subtle) 82%, transparent);
   border-radius: 999px;
-  background: var(--color-chat-card-bg);
-  color: var(--color-text-secondary);
-  padding: 0 12px;
-  font-size: var(--font-size-caption);
+  background: color-mix(in srgb, var(--color-chat-card-bg) 62%, transparent);
+  color: var(--color-text-tertiary);
+  padding: 0 10px;
+  font-size: var(--font-size-micro);
   font-weight: 500;
   transition:
     background-color 0.15s,
     border-color 0.15s,
     color 0.15s;
 }
-.composer-toolbar button:hover {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-strong);
-  background: var(--color-bg-hover);
+.composer-toolbar button:hover:not(:disabled) {
+  color: var(--color-text-secondary);
+  border-color: color-mix(in srgb, var(--color-border-strong) 78%, transparent);
+  background: color-mix(in srgb, var(--color-bg-hover) 72%, transparent);
 }
 .composer-toolbar button:disabled {
   opacity: 0.6;

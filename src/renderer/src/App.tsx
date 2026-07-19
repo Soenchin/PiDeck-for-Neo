@@ -4855,9 +4855,9 @@ ${goalTextRef.current}
           <div className="window-drag-layer" aria-hidden="true" />
           <div className="titlebar-brand" aria-label="NeoNisch">
             <img
-              className="neon-titlebar-avatar"
-              src={new URL("./assets/images/neon-avatar.png", import.meta.url).href}
-              alt="NeoNisch"
+              className="neon-titlebar-app-mark"
+              src={new URL("./assets/images/neonisch-app-mark.svg", import.meta.url).href}
+              alt="NeoNisch application mark"
             />
             <span className="brand-wordmark">NeoNisch</span>
           </div>

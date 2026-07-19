@@ -488,6 +488,36 @@ export function SessionStatus(props: {
 	accessory?: ReactNode;
 }) {
 	const state = props.state;
+	const [detailsOpen, setDetailsOpen] = useState(false);
+	const detailsRef = useRef<HTMLDivElement>(null);
+	const detailsId = useId();
+	const hasDetails = Boolean(
+		state &&
+			(state.cacheHitPercent != null ||
+				state.cacheTotal != null ||
+				state.cacheRead != null ||
+				state.cacheWrite != null ||
+				state.cost != null),
+	);
+
+	useEffect(() => {
+		if (!detailsOpen) return;
+		const handlePointerDown = (event: MouseEvent) => {
+			if (detailsRef.current && !detailsRef.current.contains(event.target as Node)) {
+				setDetailsOpen(false);
+			}
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setDetailsOpen(false);
+		};
+		document.addEventListener("mousedown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+		return () => {
+			document.removeEventListener("mousedown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [detailsOpen]);
+
 	if (!state) {
 		return props.accessory ? <div className="session-status">{props.accessory}</div> : null;
 	}
@@ -495,33 +525,57 @@ export function SessionStatus(props: {
 		<div className="session-status">
 			{state.contextPercent != null && (
 				<span className="ctx-chip">
-					{t("app.ctx")}:{" "}
-					{state.contextPercent?.toFixed?.(1) ??
-						state.contextPercent}
-					% / {formatCompact(state.contextWindow)}
-					{state.inputTokens != null && (
-						<>{" "}↑ {formatCompact(state.inputTokens)}</>
-					)}
-					{state.outputTokens != null && (
-						<>{" "}↓ {formatCompact(state.outputTokens)}</>
-					)}
+					{t("app.ctx")}: {state.contextPercent.toFixed?.(1) ?? state.contextPercent}% / {formatCompact(state.contextWindow)} ↑ {formatCompact(state.inputTokens)} ↓ {formatCompact(state.outputTokens)}
 				</span>
 			)}
-			{(state.cacheHitPercent != null || state.cacheTotal != null) && (
-				<span className="cache-chip">
-					{state.cacheHitPercent != null && (
-						<>{t("app.cacheHit")}: {state.cacheHitPercent?.toFixed?.(0) ?? state.cacheHitPercent}%</>
+			{hasDetails && (
+				<div className="session-status-details" ref={detailsRef}>
+					<button
+						type="button"
+						className="session-status-details-trigger"
+						onClick={() => setDetailsOpen((open) => !open)}
+						aria-expanded={detailsOpen}
+						aria-haspopup="dialog"
+						aria-controls={detailsId}
+						title={t("app.statusDetails")}
+					>
+						{t("app.statusDetails")}
+					</button>
+					{detailsOpen && (
+						<div id={detailsId} className="session-status-details-popover" role="dialog" aria-label={t("app.statusDetails")}>
+							{state.cacheHitPercent != null && (
+								<div className="session-status-details-row">
+									<span>{t("app.cacheHit")}</span>
+									<strong>{state.cacheHitPercent.toFixed(1)}%</strong>
+								</div>
+							)}
+							{state.cacheTotal != null && (
+								<div className="session-status-details-row">
+									<span>{t("app.cache")}</span>
+									<strong>{formatCompact(state.cacheTotal)}</strong>
+								</div>
+							)}
+							{state.cacheRead != null && (
+								<div className="session-status-details-row">
+									<span>{t("app.cacheRead")}</span>
+									<strong>{formatCompact(state.cacheRead)}</strong>
+								</div>
+							)}
+							{state.cacheWrite != null && (
+								<div className="session-status-details-row">
+									<span>{t("app.cacheWrite")}</span>
+									<strong>{formatCompact(state.cacheWrite)}</strong>
+								</div>
+							)}
+							{state.cost != null && (
+								<div className="session-status-details-row">
+									<span>{t("app.totalCost")}</span>
+									<strong>${state.cost.toFixed(3)}</strong>
+								</div>
+							)}
+						</div>
 					)}
-					{state.cacheHitPercent != null && state.cacheTotal != null && " "}
-					{state.cacheTotal != null && (
-						<>{t("app.cache")}: {formatCompact(state.cacheTotal)}</>
-					)}
-				</span>
-			)}
-			{state.cost != null && (
-				<span className="cost-chip" title={t("app.totalCost")}>
-					${state.cost.toFixed(3)}
-				</span>
+				</div>
 			)}
 			{props.accessory}
 		</div>
@@ -2608,7 +2662,11 @@ export const TurnRow = memo(function TurnRow(props: {
 			<article ref={rowRef} className="turn-row" data-message-id={run.id}>
 				<div className="turn-row-body">
 				<div className="turn-row-meta">
-					<span className="neo-reply-avatar" aria-label="NeoNisch">N</span>
+					<img
+						className="neo-reply-avatar"
+						src={new URL("../../assets/images/neon-avatar.png", import.meta.url).href}
+						alt="NeoNisch"
+					/>
 					<span className="turn-row-agent">NeoNisch</span>
 					<time>{formatTime(run.endedAt)}</time>
 						{showDuration && (
@@ -2648,7 +2706,11 @@ export const TurnRow = memo(function TurnRow(props: {
 		<article ref={rowRef} className="turn-row" data-message-id={run.id}>
 			<div className="turn-row-body">
 				<div className="turn-row-meta">
-					<span className="neo-reply-avatar" aria-label="NeoNisch">N</span>
+					<img
+						className="neo-reply-avatar"
+						src={new URL("../../assets/images/neon-avatar.png", import.meta.url).href}
+						alt="NeoNisch"
+					/>
 					<span className="turn-row-agent">NeoNisch</span>
 					<time>{formatTime(run.endedAt)}</time>
 					{showDuration && (
@@ -2847,7 +2909,7 @@ export const UserBubble = memo(function UserBubble(props: {
 	};
 	/** 编辑后重发：放回 composer 输入框，由用户自行修改后发送。 */
 	const handleEditAndResend = () => {
-		document.querySelector<HTMLTextAreaElement>(".composer-box textarea")?.focus();
+		document.querySelector<HTMLDivElement>(".composer-box .rich-input")?.focus();
 		window.dispatchEvent(
 			new CustomEvent("user-message-edit", { detail: { text: message.text } }),
 		);
@@ -4101,6 +4163,7 @@ function FilesPanel(props: {
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
 }) {
+	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 	const [modifiedFilesExpanded, setModifiedFilesExpanded] = useState(() => {
 		if (typeof window === "undefined") return false;
 		return localStorage.getItem(MODIFIED_FILES_EXPANDED_STORAGE_KEY) === "true";
@@ -4131,10 +4194,10 @@ function FilesPanel(props: {
 	}, [props.modifiedFiles]);
 
 	return (
-		<div className="files-panel">
-			<div className="panel-action-row">
+		<div className="files-panel files-panel-root">
+			<div className="panel-action-row files-panel-toolbar">
 				<span>{t("drawer.fileItems", { count: props.files.length })}</span>
-				<div className="panel-action-buttons">
+				<div className="panel-action-buttons files-panel-actions">
 					{props.onOpenFolder && (
 						<button onClick={props.onOpenFolder} title={t("drawer.openFolder")}>
 							<Folder size={14} />
@@ -4219,6 +4282,8 @@ function FilesPanel(props: {
 					onViewFile={props.onViewFile}
 					onDiffFile={props.onDiffFile}
 					gitStatuses={gitStatusMap}
+					selectedFilePath={selectedFilePath}
+					onSelectFile={setSelectedFilePath}
 				/>
 			))}
 		</div>
@@ -4386,6 +4451,8 @@ function FileNode(props: {
 	onViewFile?: (path: string) => void;
 	onDiffFile?: (path: string) => void;
 	gitStatuses?: Map<string, string>;
+	selectedFilePath: string | null;
+	onSelectFile: (path: string) => void;
 	depth?: number;
 }) {
 	const { node, expandedDirs, onToggleDirectory, depth = 0, gitStatuses } = props;
@@ -4400,9 +4467,12 @@ function FileNode(props: {
 	if (node.type === "file")
 		return (
 			<div className="file-node" style={rowStyle}>
-				<button className="file file-node-row" style={rowStyle}
+				<button className={`file file-node-row${props.selectedFilePath === node.path ? " is-selected" : ""}`} style={rowStyle}
 					title={`${node.relativePath}\n${typeLabel}`}
-					onClick={() => props.onViewFile?.(node.path)}
+					onClick={() => {
+						props.onSelectFile(node.path);
+						props.onViewFile?.(node.path);
+					}}
 					onContextMenu={menu}>
 					<span className="file-node-icon">
 						{fileIconElement(node.name, false, false)}
@@ -4437,6 +4507,8 @@ function FileNode(props: {
 							onViewFile={props.onViewFile}
 							onDiffFile={props.onDiffFile}
 							gitStatuses={gitStatuses}
+							selectedFilePath={props.selectedFilePath}
+							onSelectFile={props.onSelectFile}
 							depth={depth + 1} />
 					))}
 				</div>
