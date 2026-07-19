@@ -4854,7 +4854,11 @@ ${goalTextRef.current}
         <>
           <div className="window-drag-layer" aria-hidden="true" />
           <div className="titlebar-brand" aria-label="NeoNisch">
-            <LogoMark />
+            <img
+              className="neon-titlebar-avatar"
+              src={new URL("./assets/images/neon-avatar.png", import.meta.url).href}
+              alt="NeoNisch"
+            />
             <span className="brand-wordmark">NeoNisch</span>
           </div>
         </>
@@ -5626,131 +5630,11 @@ ${goalTextRef.current}
                     : undefined
                 }
               />
-              <div className="header-actions-right">
-                <div className="header-action-group branch-group">
-                  {!isLanWeb && (
-                    <BranchSelector
-                      gitInfo={gitInfo}
-                      switchingBranch={switchingBranch}
-                      onSwitch={switchBranch}
-                      onCreateBranch={createBranch}
-                    />
-                  )}
+              {appNotice && (
+                <div className="app-notice" role="status">
+                  {appNotice.message}
                 </div>
-                <div className="header-action-group session-group">
-                  <div className="session-combo" ref={sessionComboRef}>
-                    <button
-                      className="session-combo-trigger"
-                      disabled={!activeProjectId || isAgentStarting}
-                      title={t("app.newSession")}
-                      onClick={() => {
-                        if (activeAgentId) {
-                          setSessionActionsOpen((open) => !open);
-                        } else {
-                          createAgent();
-                        }
-                      }}
-                    >
-                      <Plus size={14} strokeWidth={2} aria-hidden="true" />
-                      <span className="session-combo-label">{t("app.new")}</span>
-                      {activeAgentId && (
-                        <span className={`session-combo-chevron${sessionActionsOpen ? " open" : ""}`}>
-                          <ChevronDown size={12} />
-                        </span>
-                      )}
-                    </button>
-                    {appNotice && (
-                      <div className="app-notice" role="status">
-                        {appNotice.message}
-                      </div>
-                    )}
-                  {sessionActionsOpen && activeAgentId && (
-                    <div className="session-combo-menu">
-                      <button
-                        onClick={() => {
-                          createAgent();
-                          setSessionActionsOpen(false);
-                        }}
-                      >
-                        <span>{t("app.newSession")}</span>
-                      </button>
-                      <div className="session-combo-divider" />
-                      <button
-                        disabled={activeAgent?.status !== "running"}
-                        onClick={() => {
-                          abortAgent();
-                          setSessionActionsOpen(false);
-                        }}
-                      >
-                        {t("app.stop")}
-                      </button>
-                      {!isLanWeb && (
-                        <button
-                          disabled={
-                            activeAgent?.status === "starting" ||
-                            restartingAgentId === activeAgentId
-                          }
-                          onClick={async () => {
-                            if (!activeAgentId || !activeAgent) return;
-                            const restartingAgent = activeAgent;
-                            setRestartingAgentId(restartingAgent.id);
-                            setSessionActionsOpen(false);
-                            // 重启会在主进程中短暂移除旧 Agent；这里保留原位置的 starting 占位，避免自动选中同项目下一个 Agent。
-                            pendingAgentsRef.current = [
-                              ...pendingAgentsRef.current.filter(
-                                (agent) => agent.id !== restartingAgent.id,
-                              ),
-                              {
-                                ...restartingAgent,
-                                status: "starting",
-                                pendingKind: "restart",
-                                pendingStartedAt: Date.now(),
-                              },
-                            ];
-                            setPendingAgents(pendingAgentsRef.current);
-                            try {
-                              const tab =
-                                await api.agents.restart(restartingAgent.id);
-                              pendingAgentsRef.current = pendingAgentsRef.current.filter(
-                                (agent) => agent.id !== restartingAgent.id,
-                              );
-                              setPendingAgents(pendingAgentsRef.current);
-                              setActiveAgentId((current) =>
-                                current === restartingAgent.id ? tab.id : current,
-                              );
-                              setActiveAgentByProject((current) =>
-                                current[restartingAgent.projectId] === restartingAgent.id
-                                  ? { ...current, [restartingAgent.projectId]: tab.id }
-                                  : current,
-                              );
-                              void refreshRuntimeState(tab.id);
-                            } catch (error) {
-                              // 重启失败时保留原 Agent 卡片并标记错误，避免用户当前上下文被兜底切走。
-                              pendingAgentsRef.current = pendingAgentsRef.current.map(
-                                (agent) =>
-                                  agent.id === restartingAgent.id
-                                    ? { ...agent, status: "error" }
-                                    : agent,
-                              );
-                              setPendingAgents(pendingAgentsRef.current);
-                              showToast(error instanceof Error ? error.message : String(error), 5000);
-                            } finally {
-                              setRestartingAgentId((current) =>
-                                current === restartingAgent.id ? null : current,
-                              );
-                            }
-                          }}
-                        >
-                          {restartingAgentId === activeAgentId
-                            ? t("app.restarting")
-                            : t("app.restart")}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-              </div>
+              )}
             </>
           </div>
         </header>

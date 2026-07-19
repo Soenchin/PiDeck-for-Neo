@@ -484,9 +484,13 @@ export function EnvironmentDialog(props: {
 export function SessionStatus(props: {
 	state?: AgentRuntimeState;
 	duration?: number;
+	/** 可交互的轻量状态项（例如 Git 分支），随遥测胶囊并排展示。 */
+	accessory?: ReactNode;
 }) {
 	const state = props.state;
-	if (!state) return null;
+	if (!state) {
+		return props.accessory ? <div className="session-status">{props.accessory}</div> : null;
+	}
 	return (
 		<div className="session-status">
 			{state.contextPercent != null && (
@@ -519,6 +523,7 @@ export function SessionStatus(props: {
 					${state.cost.toFixed(3)}
 				</span>
 			)}
+			{props.accessory}
 		</div>
 	);
 }
