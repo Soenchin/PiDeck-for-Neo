@@ -5604,7 +5604,7 @@ ${goalTextRef.current}
             : undefined),
         } as React.CSSProperties}
       >
-        <header ref={chatHeaderRef} className="chat-header">
+        <header ref={chatHeaderRef} className={`chat-header${activeAgent ? "" : " splash-hidden"}`}>
           <div className="chat-title-block">
             <div className="chat-title-row">
               <strong

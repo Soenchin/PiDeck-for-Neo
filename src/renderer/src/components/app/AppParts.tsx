@@ -1453,42 +1453,22 @@ export function AgentAvatar(props: { status: string }) {
 
 export function EmptyState(props: { hasProject: boolean; onCreate: () => void }) {
 	return (
-		<div className="empty-state">
-			<div className="empty-logo">
-				<svg
-					viewBox="140 140 520 520"
-					width="66"
-					height="66"
-					aria-hidden="true"
-				>
-					<path
-						fill="#fff"
-						fillRule="evenodd"
-						d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"
-					/>
-					<path fill="#fff" d="M517.36 400H634.72V634.72H517.36Z" />
-				</svg>
+		<div className="empty-state neo-splash-state">
+			<img
+				className="neo-splash-portrait"
+				src={new URL("../../assets/images/neon-splash-portrait.png", import.meta.url).href}
+				alt=""
+				aria-hidden="true"
+			/>
+			<div className="neo-splash-copy">
+				<h1>NeoNisch</h1>
+				<p className="neo-splash-message">我在。</p>
+				{props.hasProject ? (
+					<button className="neo-splash-action" onClick={props.onCreate}>开始协作</button>
+				) : (
+					<p className="empty-hint">{t("app.emptyNoProject")}</p>
+				)}
 			</div>
-			<div className="empty-tagline" aria-label={`${t("app.emptyTaglineLine1")} ${t("app.emptyTaglineLine2Prefix")}${t("app.emptyTaglineYours")}`}>
-				<span>{t("app.emptyTaglineLine1")}</span>
-				<span>
-					{t("app.emptyTaglineLine2Prefix")}
-					<em className="empty-tagline-yours">{t("app.emptyTaglineYours")}</em>
-				</span>
-			</div>
-			<p className="empty-subtitle">
-				{t("app.emptySubtitle").split("\n").map((line, i) => (
-					<Fragment key={i}>
-						{i > 0 && <br />}
-						<span className="empty-subtitle-line">{line}</span>
-					</Fragment>
-				))}
-			</p>
-			{props.hasProject ? (
-				<button onClick={props.onCreate}>{t("app.createAgent")}</button>
-			) : (
-				<p className="empty-hint">{t("app.emptyNoProject")}</p>
-			)}
 		</div>
 	);
 }
