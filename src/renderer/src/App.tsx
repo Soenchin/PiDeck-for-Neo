@@ -4851,7 +4851,13 @@ ${goalTextRef.current}
       }
     >
       {!settings.useNativeTitleBar && (
-        <div className="window-drag-layer" aria-hidden="true" />
+        <>
+          <div className="window-drag-layer" aria-hidden="true" />
+          <div className="titlebar-brand" aria-label="NeoNisch">
+            <LogoMark />
+            <span className="brand-wordmark">NeoNisch</span>
+          </div>
+        </>
       )}
       {!settings.useNativeTitleBar && (
         <div className="window-controls" aria-label={t("app.windowControls")}>
@@ -4910,8 +4916,8 @@ ${goalTextRef.current}
           <div className="list-toolbar">
           <div className="app-badge">
             <LogoMark />
-            <span className="brand-wordmark" aria-label="PiDeck">
-              PiDeck
+            <span className="brand-wordmark" aria-label="NeoNisch">
+              NeoNisch
             </span>
           </div>
         </div>

@@ -2602,9 +2602,10 @@ export const TurnRow = memo(function TurnRow(props: {
 		return (
 			<article ref={rowRef} className="turn-row" data-message-id={run.id}>
 				<div className="turn-row-body">
-					<div className="turn-row-meta">
-						<span className="turn-row-agent">pi</span>
-						<time>{formatTime(run.endedAt)}</time>
+				<div className="turn-row-meta">
+					<span className="neo-reply-avatar" aria-label="NeoNisch">N</span>
+					<span className="turn-row-agent">NeoNisch</span>
+					<time>{formatTime(run.endedAt)}</time>
 						{showDuration && (
 							<span className="turn-row-duration">{formatDuration(duration)}</span>
 						)}
@@ -2642,7 +2643,8 @@ export const TurnRow = memo(function TurnRow(props: {
 		<article ref={rowRef} className="turn-row" data-message-id={run.id}>
 			<div className="turn-row-body">
 				<div className="turn-row-meta">
-					<span className="turn-row-agent">pi</span>
+					<span className="neo-reply-avatar" aria-label="NeoNisch">N</span>
+					<span className="turn-row-agent">NeoNisch</span>
 					<time>{formatTime(run.endedAt)}</time>
 					{showDuration && (
 						<span className="turn-row-duration">{formatDuration(duration)}</span>
