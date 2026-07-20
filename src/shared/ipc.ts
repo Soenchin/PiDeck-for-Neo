@@ -23,6 +23,7 @@ export const ipcChannels = {
 	filesOpen: "files:open",
 	filesShowInFolder: "files:show-in-folder",
 	filesReadContent: "files:read-content",
+	filesReadImage: "files:read-image",
 	filesWriteContent: "files:write-content",
 	filesDelete: "files:delete",
 	filesRename: "files:rename",

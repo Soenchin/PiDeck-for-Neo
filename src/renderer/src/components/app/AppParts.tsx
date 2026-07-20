@@ -1454,20 +1454,22 @@ export function AgentAvatar(props: { status: string }) {
 export function EmptyState(props: { hasProject: boolean; onCreate: () => void }) {
 	return (
 		<div className="empty-state neo-splash-state">
-			<img
-				className="neo-splash-portrait"
-				src={new URL("../../assets/images/neon-splash-portrait.png", import.meta.url).href}
-				alt=""
-				aria-hidden="true"
-			/>
-			<div className="neo-splash-copy">
-				<h1>NeoNisch</h1>
-				<p className="neo-splash-message">我在。</p>
-				{props.hasProject ? (
-					<button className="neo-splash-action" onClick={props.onCreate}>开始协作</button>
-				) : (
-					<p className="empty-hint">{t("app.emptyNoProject")}</p>
-				)}
+			<div className="neo-splash-lockup">
+				<img
+					className="neo-splash-brand-mark"
+					src={new URL("../../assets/images/neonisch-app-mark.svg", import.meta.url).href}
+					alt=""
+					aria-hidden="true"
+				/>
+				<div className="neo-splash-copy">
+					<h1>NeoNisch</h1>
+					<p className="neo-splash-message">我在。</p>
+					{props.hasProject ? (
+						<button className="neo-splash-action" onClick={props.onCreate}>开始协作</button>
+					) : (
+						<p className="empty-hint">{t("app.emptyNoProject")}</p>
+					)}
+				</div>
 			</div>
 		</div>
 	);
@@ -5047,6 +5049,7 @@ export function FileContextMenu(props: {
 	onOpen: () => void;
 	onReveal: () => void;
 	onAttach: () => void;
+	onOpenInBrowser?: () => void;
 	onCopyPath: () => void;
 	onDelete?: () => void;
 	onRename?: () => void;
@@ -5055,6 +5058,7 @@ export function FileContextMenu(props: {
 	const [pos, setPos] = useState({ x: props.menu.x, y: props.menu.y });
 	const isFile = props.menu.node.type === "file";
 	const isDir = props.menu.node.type === "directory";
+	const isHtml = isFile && /\.html?$/i.test(props.menu.node.name);
 
 	// 测量菜单实际高度，超底部时向上翻转，避免底部文件右键菜单被视口遮挡。
 	// 翻转后至少保留 8px 上边距，使菜单始终可读。
@@ -5082,6 +5086,9 @@ export function FileContextMenu(props: {
 				<button disabled={!isFile} onClick={props.onOpen}>
 					{t("menu.defaultOpen")}
 				</button>
+				{isHtml && props.onOpenInBrowser && (
+					<button onClick={props.onOpenInBrowser}>{t("menu.openInBrowser")}</button>
+				)}
 				<button onClick={props.onReveal}>{t("menu.revealFile")}</button>
 				<button onClick={props.onCopyPath}>{t("menu.copyPath")}</button>
 				{props.onRename && (
@@ -5328,6 +5335,7 @@ export function AgentContextMenu(props: {
 	onOpenLogFile?: () => void;
 	onOpenSessionFile?: () => void;
 	onCloseAgent: () => void;
+	onDeleteSession?: () => void;
 }) {
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
@@ -5359,6 +5367,9 @@ export function AgentContextMenu(props: {
 					</button>
 				)}
 				<button className="danger" onClick={props.onCloseAgent}>{t("menu.closeAgent")}</button>
+				{props.menu.agent.sessionPath && props.onDeleteSession && (
+					<button className="danger" onClick={props.onDeleteSession}>{t("menu.deleteAgentSession")}</button>
+				)}
 			</div>
 		</div>
 	);

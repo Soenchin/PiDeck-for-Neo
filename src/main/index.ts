@@ -1275,6 +1275,20 @@ function registerIpc() {
 		}
 	});
 
+	ipcMain.handle(ipcChannels.filesReadImage, async (_event, path: string) => {
+		const extension = path.split(".").pop()?.toLowerCase();
+		const mimeByExtension: Record<string, string> = {
+			png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+			webp: "image/webp", bmp: "image/bmp", ico: "image/x-icon", svg: "image/svg+xml",
+		};
+		const mimeType = extension ? mimeByExtension[extension] : undefined;
+		if (!mimeType) throw new Error("Unsupported image format");
+		const data = await readFile(path);
+		// 文件抽屉的预览不是原图管理器；限制在 20MB 防止一张超大图转 base64 后把 renderer 内存顶爆。
+		if (data.byteLength > 20 * 1024 * 1024) throw new Error("Image exceeds the 20MB preview limit");
+		return { type: "image" as const, data: data.toString("base64"), mimeType };
+	});
+
 	ipcMain.handle(ipcChannels.filesWriteContent, async (_event, path: string, content: string) => {
 		await writeFile(path, content, "utf8");
 		void appLogger.info("file", "File written", { path, bytes: Buffer.byteLength(content, "utf8") });

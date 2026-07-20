@@ -92,10 +92,12 @@ export function BrowserPanel(props: {
 	isFullscreen?: boolean;
 	onClose?: () => void;
 	onToggleFullscreen?: () => void;
+	/** 由文件树等外部入口请求加载的 URL；id 用来允许重复打开同一个文件。 */
+	navigationRequest?: { id: number; url: string };
 	/** 最小化：关闭全屏弹框，回到抽屉模式。 */
 	onMinimize?: () => void;
 }) {
-	const { onClose, onMinimize, onToggleFullscreen } = props;
+	const { onClose, onMinimize, onToggleFullscreen, navigationRequest } = props;
 	const initialTab = getInitialActiveTab();
 	const webviewRef = useRef<any>(null);
 	const defaultUARef = useRef<string | null>(null);
@@ -112,6 +114,11 @@ export function BrowserPanel(props: {
 	const [device, setDevice] = useState<DeviceType>(() => moduleState.device);
 	const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
 	const deviceMenuRef = useRef<HTMLDivElement | null>(null);
+	const handledNavigationRequestRef = useRef<number | null>(null);
+	// Electron 的 webview ref 在 React 挂载后立刻存在，但其 WebContents 还可能没发 dom-ready。
+	// 此时直接调用 loadURL 会抛异常并让 BrowserPanel 整棵 React 子树卸载。
+	const webviewReadyRef = useRef(false);
+	const pendingUrlRef = useRef<string | null>(null);
 
 	const persistTabs = useCallback((nextTabs: TabEntry[], nextActiveId: string | null) => {
 		moduleState.tabs = nextTabs;
@@ -143,14 +150,24 @@ export function BrowserPanel(props: {
 
 	const loadUrl = useCallback(
 		(targetUrl: string, nextDevice = moduleState.device) => {
-			const wv = webviewRef.current;
-			if (!wv) return;
-			applyDeviceUserAgent(wv, nextDevice);
 			setUrl(targetUrl);
 			setInputValue(targetUrl);
-			wv.loadURL(targetUrl);
+			updateActiveTab({ url: targetUrl });
+			const wv = webviewRef.current;
+			if (!wv || !webviewReadyRef.current) {
+				pendingUrlRef.current = targetUrl;
+				return;
+			}
+			applyDeviceUserAgent(wv, nextDevice);
+			try {
+				wv.loadURL(targetUrl);
+			} catch {
+				// 热更新或 WebContents 重建会让 ready 状态短暂失效；保留请求，等待下次 dom-ready 再加载。
+				webviewReadyRef.current = false;
+				pendingUrlRef.current = targetUrl;
+			}
 		},
-		[applyDeviceUserAgent],
+		[applyDeviceUserAgent, updateActiveTab],
 	);
 
 	useEffect(() => {
@@ -164,7 +181,15 @@ export function BrowserPanel(props: {
 				defaultUARef.current = null;
 			}
 		}
-		applyDeviceUserAgent(wv, moduleState.device);
+		const onDomReady = () => {
+			webviewReadyRef.current = true;
+			applyDeviceUserAgent(wv, moduleState.device);
+			const pendingUrl = pendingUrlRef.current;
+			if (pendingUrl) {
+				pendingUrlRef.current = null;
+				loadUrl(pendingUrl);
+			}
+		};
 
 		const onDidNavigate = (event: Event) => {
 			const nextUrl = (event as unknown as WebviewEvent<"did-navigate">).url;
@@ -194,7 +219,7 @@ export function BrowserPanel(props: {
 		};
 		const onPageTitleUpdated = (event: Event) => {
 			const title = (event as unknown as WebviewEvent<"page-title-updated">).title;
-			updateActiveTab({ title: title || url || DEFAULT_HOME });
+			updateActiveTab({ title: title || wv.getURL() || DEFAULT_HOME });
 		};
 		const onNewWindow = (event: Event) => {
 			const evt = event as unknown as WebviewEvent<"new-window">;
@@ -204,6 +229,7 @@ export function BrowserPanel(props: {
 			}
 		};
 
+		wv.addEventListener("dom-ready", onDomReady);
 		wv.addEventListener("did-navigate", onDidNavigate);
 		wv.addEventListener("did-navigate-in-page", onDidNavigateInPage);
 		wv.addEventListener("did-start-loading", onDidStartLoading);
@@ -213,6 +239,8 @@ export function BrowserPanel(props: {
 		wv.addEventListener("new-window", onNewWindow);
 
 		return () => {
+			webviewReadyRef.current = false;
+			wv.removeEventListener("dom-ready", onDomReady);
 			wv.removeEventListener("did-navigate", onDidNavigate);
 			wv.removeEventListener("did-navigate-in-page", onDidNavigateInPage);
 			wv.removeEventListener("did-start-loading", onDidStartLoading);
@@ -221,7 +249,7 @@ export function BrowserPanel(props: {
 			wv.removeEventListener("page-title-updated", onPageTitleUpdated);
 			wv.removeEventListener("new-window", onNewWindow);
 		};
-	}, [applyDeviceUserAgent, updateActiveTab, url]);
+	}, [applyDeviceUserAgent, loadUrl, updateActiveTab]);
 
 	const navigate = useCallback(
 		(targetUrl?: string) => {
@@ -295,6 +323,13 @@ export function BrowserPanel(props: {
 		document.addEventListener("mousedown", handleMouseDown);
 		return () => document.removeEventListener("mousedown", handleMouseDown);
 	}, [deviceMenuOpen]);
+
+	useEffect(() => {
+		if (!navigationRequest || handledNavigationRequestRef.current === navigationRequest.id) return;
+		handledNavigationRequestRef.current = navigationRequest.id;
+		// 右键“在内置浏览器中打开”与地址栏共用同一套 webview，避免再创建一套预览容器。
+		loadUrl(navigationRequest.url);
+	}, [loadUrl, navigationRequest]);
 
 	const handleKeyDown = useCallback(
 		(event: React.KeyboardEvent) => {

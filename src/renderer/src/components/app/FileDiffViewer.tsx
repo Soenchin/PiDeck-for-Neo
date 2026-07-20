@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DiffEditor, Editor } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
+import type { ImageContent } from "../../../../shared/types";
 import { t } from "../../i18n";
 import { Columns3, Edit3, Maximize2, Minimize2, X, Eye, FileCode } from "lucide-react";
 import { setupMonaco } from "../../utils/monacoSetup";
@@ -8,6 +9,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeKatex from "rehype-katex";
 import { defaultUrlTransform } from "react-markdown";
+
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"]);
 
 const BINARY_EXTENSIONS = new Set([
 	"png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg",
@@ -47,6 +50,8 @@ export function FileDiffViewer(props: {
 	/** 关闭指定 tab */
 	onCloseTab?: (id: string) => void;
 	readContent: (path: string) => Promise<string>;
+	/** 通过主进程读取图片为 base64，避免渲染层直接访问本地 file://。 */
+	readImage?: (path: string) => Promise<ImageContent>;
 	/** 从会话消息 meta 中提取的工具执行前原始内容，优先于 Git HEAD。 */
 	originalContent?: string;
 	/** Session-recorded modified content, preferred over disk read for historical sessions. */
@@ -60,6 +65,7 @@ export function FileDiffViewer(props: {
 }) {
 	const maxFileSize = (props.maxFileSizeMB ?? 5) * 1024 * 1024;
 	const [content, setContent] = useState("");
+	const [image, setImage] = useState<ImageContent | null>(null);
 	// 差异模式左侧展示的原始内容：优先使用会话缓存（originalContent），
 	// 没有则从 Git HEAD 读取。新增/未跟踪文件为空字符串。
 	const [original, setOriginal] = useState("");
@@ -78,25 +84,32 @@ export function FileDiffViewer(props: {
 	const fileName = props.filePath.split(/[/\\]/).pop() ?? props.filePath;
 	const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
 	const isMarkdown = ext === "md" || ext === "mdx";
+	const isImage = IMAGE_EXTENSIONS.has(ext);
 	// 只读视图下 markdown 文件默认启用预览；差异模式或编辑模式保持源码视图。
 	const [preview, setPreview] = useState(isMarkdown && !isDiffMode && readOnly);
 
 	useEffect(() => {
-		ensureMonaco();
-
 		let cancelled = false;
 		async function load() {
 			setLoading(true);
 			setError(null);
+			setImage(null);
 			setDirty(false);
 			try {
-				// 检查文件扩展名是否属于二进制/不可编辑类型
 				const ext = (props.filePath.split(".").pop() ?? "").toLowerCase();
+				if (IMAGE_EXTENSIONS.has(ext)) {
+					if (!props.readImage) throw new Error("Image preview is unavailable in this runtime");
+					const imageResult = await props.readImage(props.filePath);
+					if (!cancelled) setImage(imageResult);
+					return;
+				}
+				// 其他二进制文件不走 Monaco；避免无意义地初始化编辑器和 worker。
 				if (BINARY_EXTENSIONS.has(ext)) {
 					setError(t("editor.binaryFileNotSupported", { ext }));
 					setLoading(false);
 					return;
 				}
+				ensureMonaco();
 				// 差异模式优先使用会话缓存原始内容（originalContent），
 				// 没有时降级到 Git HEAD；两者都无则左侧显示空（新增文件）。
 				// 修改后内容优先使用会话记录（modifiedContent），历史会话恢复时磁盘可能已变化。
@@ -143,7 +156,7 @@ export function FileDiffViewer(props: {
 	// readContent/readOriginalContent 是稳定的 API 回调（上层已 useCallback），
 	// 不参与 effect deps，避免父组件因其他状态变化重渲染时反复加载文件导致编辑器重置到顶部。
 	// originalContent（diff 前置内容）和 isDiffMode（view/diff 模式切换）需要监听。
-	}, [props.filePath, props.originalContent, isDiffMode]);
+	}, [props.filePath, props.originalContent, isDiffMode, props.readImage]);
 
 	const handleClose = useCallback(() => {
 		props.onClose();
@@ -362,8 +375,13 @@ export function FileDiffViewer(props: {
 				{error && <div className="file-diff-error">{error}</div>}
 				{!loading && !error && (
 					<>
+						{isImage && image && (
+							<div className="file-image-preview">
+								<img src={`data:${image.mimeType};base64,${image.data}`} alt={fileName} />
+							</div>
+						)}
 						{/* Markdown 预览：仅 view 模式且 preview 启用 */}
-						{!isDiffMode && preview && (
+						{!isImage && !isDiffMode && preview && (
 							<div className="file-diff-preview">
 								<ReactMarkdown
 									remarkPlugins={[remarkGfm]}
@@ -375,7 +393,7 @@ export function FileDiffViewer(props: {
 							</div>
 						)}
 						{/* view 模式、非预览：常规 Editor */}
-						{!isDiffMode && !preview && (
+						{!isImage && !isDiffMode && !preview && (
 							<div style={{ height: "100%", flexDirection: "column" }}>
 								<Editor
 									value={content}

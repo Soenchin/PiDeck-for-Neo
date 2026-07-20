@@ -8,6 +8,8 @@ import {
   useRef,
   useState,
   useCallback,
+  Component,
+  type ErrorInfo,
   type PointerEvent,
   type ReactNode,
 } from "react";
@@ -134,6 +136,36 @@ import {
 } from "./components/app/RichInput";
 // 懒加载：Monaco Editor（~17.6MB Web Worker）仅在用户打开 diff 时才加载
 const FileDiffViewer = lazy(() => import("./components/app/FileDiffViewer").then((m) => ({ default: m.FileDiffViewer })));
+
+/**
+ * Vite 开发期编译失败或热更新切换时，动态 import 可能短暂失败。
+ * 错误边界必须自己渲染关闭按钮，否则 Suspense 的 backdrop 会留下来把整个工作台锁死。
+ */
+class FileDiffLoadBoundary extends Component<{ onClose: () => void; children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  override componentDidCatch(_error: Error, _info: ErrorInfo) {
+    // 由顶层 renderer 日志统一记录；这里仅阻止局部懒加载失败炸掉整个界面。
+  }
+
+  override render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="modal-backdrop" onClick={this.props.onClose}>
+        <div className="file-diff-load-failed" onClick={(event) => event.stopPropagation()}>
+          <strong>{t("editor.loadFailed")}</strong>
+          <p>{t("editor.loadFailedHint")}</p>
+          <button className="config-btn primary" onClick={this.props.onClose}>{t("common.close")}</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 // 懒加载模态框，减少首屏 JS 体积
 const SettingsModal = lazy(() => import("./components/app/SettingsModal").then((m) => ({ default: m.SettingsModal })));
 
@@ -584,6 +616,8 @@ export function App() {
   const [editorsTargetPath, setEditorsTargetPath] = useState<string | null>(null);
   /** 浏览器全屏模式：在完整窗口覆盖层中渲染浏览器面板，不受右侧抽屉宽度限制。 */
   const [browserFullscreen, setBrowserFullscreen] = useState(false);
+  /** 文件树请求浏览器加载时递增，确保连续打开同一 HTML 文件也会重新载入。 */
+  const [browserNavigationRequest, setBrowserNavigationRequest] = useState<{ id: number; url: string } | null>(null);
   const editorsRef = useRef<HTMLDivElement>(null);
 
   // 点击编辑器气泡外部时关闭
@@ -811,6 +845,10 @@ export function App() {
   // FileDiffViewer 会在读取函数变化时重载文件；这些 IO 入口必须保持引用稳定，避免 App 轮询/消息更新导致预览滚动回到顶部。
   const readEditorFileContent = useCallback(
     (path: string) => api.files.readContent(path),
+    [],
+  );
+  const readEditorImage = useCallback(
+    (path: string) => api.files.readImage(path),
     [],
   );
   const readEditorOriginalContent = useCallback(
@@ -2842,12 +2880,24 @@ export function App() {
     });
   }
 
+  function openHtmlInBrowser(path: string) {
+    // Electron webview 需要 file:// URL。盘符冒号必须保留，而每个路径段单独编码，
+    // 否则文件名里的 # 或 ? 会被浏览器误解为 hash/query，导致本地预览指向错误资源。
+    const normalizedPath = path.replace(/\\/g, "/");
+    const fileUrl = `file:///${normalizedPath.split("/").map((part, index) => index === 0 ? part : encodeURIComponent(part)).join("/")}`;
+    setBrowserNavigationRequest({ id: Date.now(), url: fileUrl });
+    setBrowserFullscreen(false);
+    setDrawer("browser");
+    setDrawerCollapsed(false);
+  }
+
   function viewFilePath(path: string) {
+    // 文件树的“查看”必须固定走右侧查看器，不能继承上一次工具 Diff 留下的 modal 状态。
+    // 否则用户看过一次差异后，再点 MD/TXT/PNG 就会莫名打开遮罩式弹框或看起来像黑屏。
+    setEditorMode("drawer");
     openEditorTab(path, "view");
-    if (editorMode === "drawer") {
-      setDrawer("editor");
-      setDrawerCollapsed(false);
-    }
+    setDrawer("editor");
+    setDrawerCollapsed(false);
   }
 
   function diffFilePath(path: string, originalContent?: string, content?: string) {
@@ -3730,6 +3780,33 @@ export function App() {
   async function closeAgent(agentId: string) {
     if (isPendingAgentId(agentId)) return;
     await api.agents.stop(agentId);
+  }
+
+  function requestDeleteAgentSession(agent: AgentTab) {
+    if (!agent.sessionPath || isPendingAgentId(agent.id)) return;
+    setAgentMenu(null);
+    setConfirmDialog({
+      title: t("app.deleteAgentSessionTitle"),
+      message: t("app.deleteAgentSessionConfirm", { name: agent.title }),
+      danger: true,
+      confirmLabel: t("common.delete"),
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          // sessions:delete 会拒绝仍被 Agent 占用的 JSONL；必须先停子进程再删除，
+          // 否则会让 pi 继续向已移除的会话文件写入，造成状态错乱。
+          await closeAgent(agent.id);
+          await api.sessions.delete(agent.sessionPath!);
+          showToast(t("app.sessionDeleted"), 2200);
+          await refreshSessions(agent.projectId);
+          await refreshProjectSessions(agent.projectId);
+        } catch (error) {
+          showToast(t("app.openFileFailed", {
+            error: error instanceof Error ? error.message : String(error),
+          }), 4500);
+        }
+      },
+    });
   }
 
   async function abortAgent(agentId = activeAgentId) {
@@ -6236,29 +6313,33 @@ ${goalTextRef.current}
         data-rendered={Boolean(drawerContentPanel)}
       >
         {editorMode === "drawer" && drawerContentPanel === "editor" && !drawerCollapsed && activeTab ? (
-          <Suspense fallback={<div className="drawer-content-frame"><div className="file-diff-loading">Loading...</div></div>}>
-            <FileDiffViewer
-              displayMode="drawer"
-              filePath={activeTab.filePath}
-              mode={activeTab.mode}
-              onToggleMode={toggleEditorMode}
-              originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
-              modifiedContent={activeTab.modifiedContent}
-              tabs={editorTabs}
-              activeTabId={activeTabId}
-              onSelectTab={selectEditorTab}
-              onCloseTab={closeEditorTab}
-              onClose={() => { setActiveTabId(null); setEditorTabs([]); setDrawer(null); }}
-              readContent={readEditorFileContent}
-              readOriginalContent={readEditorOriginalContent}
-              saveContent={saveEditorFileContent}
-              theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
-              maxFileSizeMB={settings.maxEditorFileSizeMB}
-            />
-          </Suspense>
+          <FileDiffLoadBoundary onClose={() => { setActiveTabId(null); setEditorTabs([]); setDrawer(null); }}>
+            <Suspense fallback={<div className="drawer-content-frame"><div className="file-diff-loading">{t("common.loading")}</div></div>}>
+              <FileDiffViewer
+                displayMode="drawer"
+                filePath={activeTab.filePath}
+                mode={activeTab.mode}
+                onToggleMode={toggleEditorMode}
+                originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
+                modifiedContent={activeTab.modifiedContent}
+                tabs={editorTabs}
+                activeTabId={activeTabId}
+                onSelectTab={selectEditorTab}
+                onCloseTab={closeEditorTab}
+                onClose={() => { setActiveTabId(null); setEditorTabs([]); setDrawer(null); }}
+                readContent={readEditorFileContent}
+                readImage={readEditorImage}
+                readOriginalContent={readEditorOriginalContent}
+                saveContent={saveEditorFileContent}
+                theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+                maxFileSizeMB={settings.maxEditorFileSizeMB}
+              />
+            </Suspense>
+          </FileDiffLoadBoundary>
         ) : drawerContentPanel === "browser" && !drawerCollapsed && !browserFullscreen ? (
           <div className="drawer-content-frame">
             <BrowserPanel
+              navigationRequest={browserNavigationRequest ?? undefined}
               onClose={() => setDrawer(null)}
               onToggleFullscreen={() => setBrowserFullscreen(true)}
             />
@@ -6354,6 +6435,10 @@ ${goalTextRef.current}
           }}
           onReveal={() => {
             void api.files.showInFolder(fileMenu.node.path);
+            setFileMenu(null);
+          }}
+          onOpenInBrowser={() => {
+            openHtmlInBrowser(fileMenu.node.path);
             setFileMenu(null);
           }}
           onAttach={() => {
@@ -6560,6 +6645,7 @@ ${goalTextRef.current}
             void closeAgent(agentMenu.agent.id);
             setAgentMenu(null);
           }}
+          onDeleteSession={() => requestDeleteAgentSession(agentMenu.agent)}
         />
       )}
       {sessionMenu && (
@@ -6919,26 +7005,29 @@ ${goalTextRef.current}
       </Suspense>
       )}
       {editorMode === "modal" && activeTab && (
-        <Suspense fallback={<div className="modal-backdrop"><span className="file-diff-loading">Loading...</span></div>}>
-        <FileDiffViewer
-          displayMode="modal"
-          filePath={activeTab.filePath}
-          mode={activeTab.mode}
-          onToggleMode={toggleEditorMode}
-          originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
-          modifiedContent={activeTab.modifiedContent}
-          tabs={editorTabs}
-          activeTabId={activeTabId}
-          onSelectTab={selectEditorTab}
-          onCloseTab={closeEditorTab}
-          onClose={() => { setActiveTabId(null); setEditorTabs([]); }}
-          readContent={readEditorFileContent}
-          readOriginalContent={readEditorOriginalContent}
-          saveContent={saveEditorFileContent}
-          theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
-          maxFileSizeMB={settings.maxEditorFileSizeMB}
-        />
-      </Suspense>
+        <FileDiffLoadBoundary onClose={() => { setActiveTabId(null); setEditorTabs([]); }}>
+          <Suspense fallback={<div className="modal-backdrop"><span className="file-diff-loading">{t("common.loading")}</span></div>}>
+            <FileDiffViewer
+              displayMode="modal"
+              filePath={activeTab.filePath}
+              mode={activeTab.mode}
+              onToggleMode={toggleEditorMode}
+              originalContent={activeTab.mode === "diff" ? activeTab.originalContent : undefined}
+              modifiedContent={activeTab.modifiedContent}
+              tabs={editorTabs}
+              activeTabId={activeTabId}
+              onSelectTab={selectEditorTab}
+              onCloseTab={closeEditorTab}
+              onClose={() => { setActiveTabId(null); setEditorTabs([]); }}
+              readContent={readEditorFileContent}
+              readImage={readEditorImage}
+              readOriginalContent={readEditorOriginalContent}
+              saveContent={saveEditorFileContent}
+              theme={document.documentElement.dataset.theme === "dark" ? "dark" : "light"}
+              maxFileSizeMB={settings.maxEditorFileSizeMB}
+            />
+          </Suspense>
+        </FileDiffLoadBoundary>
       )}
       {previewImage && (
         <ImagePreviewModal
@@ -7170,6 +7259,7 @@ ${goalTextRef.current}
           <div className="browser-modal" onClick={(e) => e.stopPropagation()}>
             <BrowserPanel
               isFullscreen
+              navigationRequest={browserNavigationRequest ?? undefined}
               onClose={() => setBrowserFullscreen(false)}
               onMinimize={() => {
                 setBrowserFullscreen(false);

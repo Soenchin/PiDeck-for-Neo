@@ -6383,41 +6383,36 @@ body.ask-dialog-open .ask-question-card.pending {
   padding-bottom: 12vh;
   color: var(--color-text-tertiary);
 }
-/* NeoNisch 启动页：左侧顶天立地的人物主视觉，右侧为安静的协作入口。 */
+/* NeoNisch 启动页：保留安静的协作入口，不展示人物立绘。 */
 .neo-splash-state {
   align-items: stretch;
   justify-content: center;
   padding: 0;
+  overflow: visible;
 }
-.neo-splash-portrait {
-  position: absolute;
-  /* 放大并向左下越界，主视觉吃满启动页左/下边缘。 */
-  left: clamp(-170px, -8vw, -72px);
-  top: -42px;
-  bottom: -74px;
-  z-index: 0;
-  width: min(59vw, 900px);
-  height: min(121%, 1010px);
-  object-fit: cover;
-  object-position: center top;
-  opacity: 0.92;
-  filter: saturate(0.9) contrast(0.98) brightness(0.8);
-  mask-image: linear-gradient(90deg, #000 0%, #000 64%, transparent 100%), linear-gradient(0deg, #000 0%, #000 87%, transparent 100%);
-  mask-composite: intersect;
-  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 64%, transparent 100%), linear-gradient(0deg, #000 0%, #000 87%, transparent 100%);
-  -webkit-mask-composite: source-in;
-  pointer-events: none;
-}
-.neo-splash-copy {
+.neo-splash-lockup {
   position: relative;
   z-index: 1;
-  width: min(480px, 38vw);
-  margin-left: clamp(350px, 39vw, 680px);
+  display: flex;
+  align-items: center;
+  gap: clamp(22px, 2.6vw, 42px);
+  width: min(620px, 52vw);
+  /* 开屏锁定块明确落在左侧三分之一，不悬在画面中间。 */
+  margin-left: clamp(14px, 1.5vw, 36px);
   margin-top: -4vh;
   align-self: center;
 }
+.neo-splash-copy {
+  width: min(480px, 42vw);
+}
+.neo-splash-brand-mark {
+  width: clamp(74px, 7vw, 108px);
+  height: clamp(74px, 7vw, 108px);
+  flex: 0 0 auto;
+  filter: drop-shadow(0 0 11px rgba(84, 232, 154, 0.22));
+}
 .neo-splash-copy h1 {
-  margin: 0 0 14px;
+  margin: 0;
   color: transparent;
   background: var(--brand-wordmark-gradient);
   background-clip: text;
@@ -6460,11 +6455,6 @@ body.ask-dialog-open .ask-question-card.pending {
   padding-top: 0;
 }
 @media (max-width: 780px) {
-  .neo-splash-portrait {
-    left: -100px;
-    width: 660px;
-    opacity: 0.46;
-  }
   .neo-splash-copy {
     width: min(430px, 78vw);
     margin-left: auto;
@@ -14461,6 +14451,40 @@ a.config-btn {
 
 .file-diff-error {
   color: var(--color-danger);
+}
+
+.file-image-preview {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  overflow: auto;
+  background: var(--color-bg-subtle);
+}
+.file-image-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.file-diff-load-failed {
+  width: min(440px, calc(100vw - 48px));
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-xl);
+  color: var(--color-text-primary);
+}
+.file-diff-load-failed strong {
+  display: block;
+  color: var(--color-danger);
+}
+.file-diff-load-failed p {
+  margin: var(--space-3) 0 var(--space-5);
+  color: var(--color-text-secondary);
 }
 
 /* ── Markdown 预览区 ──────────────────────────── */

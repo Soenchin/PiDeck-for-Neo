@@ -44,6 +44,7 @@ import type {
 	FileTreeNode,
 	ForkMessage,
 	GitBranchInfo,
+	ImageContent,
 	WorktreeEntry,
 	PiCliUpdateResult,
 	PiCommand,
@@ -147,6 +148,8 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesShowInFolder, path) as Promise<void>,
 		readContent: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesReadContent, path) as Promise<string>,
+		readImage: (path: string) =>
+			ipcRenderer.invoke(ipcChannels.filesReadImage, path) as Promise<ImageContent>,
 		writeContent: (path: string, content: string) =>
 			ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content) as Promise<void>,
 		delete: (path: string, recursive?: boolean) =>

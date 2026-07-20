@@ -277,6 +277,7 @@ export function createPreviewApi(): PiDesktopApi {
 			open: async () => undefined,
 			showInFolder: async () => undefined,
 			readContent: async () => "",
+			readImage: async () => ({ type: "image", data: "", mimeType: "image/png" }),
 			writeContent: async () => undefined,
 			delete: async () => undefined,
 			rename: async () => "",
