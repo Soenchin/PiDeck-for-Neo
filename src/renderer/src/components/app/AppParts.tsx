@@ -524,8 +524,15 @@ export function SessionStatus(props: {
 	return (
 		<div className="session-status">
 			{state.contextPercent != null && (
-				<span className="ctx-chip">
-					{t("app.ctx")}: {state.contextPercent.toFixed?.(1) ?? state.contextPercent}% / {formatCompact(state.contextWindow)} ↑ {formatCompact(state.inputTokens)} ↓ {formatCompact(state.outputTokens)}
+				<span
+					className="ctx-chip"
+					title={`${t("app.ctx")}: ${state.contextPercent.toFixed?.(1) ?? state.contextPercent}% / ${formatCompact(state.contextWindow)}  ↑ ${formatCompact(state.inputTokens)}  ↓ ${formatCompact(state.outputTokens)}`}
+				>
+					<span className="ctx-chip-main">
+						{(state.contextPercent.toFixed?.(1) ?? state.contextPercent)}%
+					</span>
+					<span className="ctx-chip-sep" aria-hidden="true">·</span>
+					<span className="ctx-chip-window">{formatCompact(state.contextWindow)}</span>
 				</span>
 			)}
 			{hasDetails && (
@@ -3871,12 +3878,22 @@ export function ConversationOutline(props: {
 	browserAction?: EntryAction;
 }) {
 	const [expanded, setExpanded] = useState(false);
+	const [toolsOpen, setToolsOpen] = useState(false);
 	const [dragging, setDragging] = useState(false);
 	const [top, setTop] = useState(() => getInitialOutlineTop());
 	const dragRef = useRef<{ startY: number; startTop: number } | null>(null);
 	const topRef = useRef(top);
+	const toolsRef = useRef<HTMLDivElement>(null);
 	const visibleItems = expanded ? props.items : props.items.slice(-15);
 	const hasMore = props.items.length > 15;
+	const sideActions = [
+		props.extraAction,
+		props.terminalAction,
+		props.filesAction,
+		props.editorsAction,
+		props.browserAction,
+	].filter(Boolean) as EntryAction[];
+	const anySideActive = sideActions.some((action) => action.active);
 
 	useEffect(() => {
 		topRef.current = top;
@@ -3907,6 +3924,24 @@ export function ConversationOutline(props: {
 		window.addEventListener("resize", onResize);
 		return () => window.removeEventListener("resize", onResize);
 	}, []);
+
+	useEffect(() => {
+		if (!toolsOpen) return;
+		const handlePointerDown = (event: MouseEvent) => {
+			if (toolsRef.current && !toolsRef.current.contains(event.target as Node)) {
+				setToolsOpen(false);
+			}
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setToolsOpen(false);
+		};
+		document.addEventListener("mousedown", handlePointerDown);
+		document.addEventListener("keydown", handleKeyDown);
+		return () => {
+			document.removeEventListener("mousedown", handlePointerDown);
+			document.removeEventListener("keydown", handleKeyDown);
+		};
+	}, [toolsOpen]);
 
 	function startDrag(event: ReactPointerEvent<HTMLElement>) {
 		event.preventDefault();
@@ -3967,60 +4002,93 @@ export function ConversationOutline(props: {
 				</nav>
 				)}
 			</div>
-			{props.extraAction && (
-				<button
-					type="button"
-					className={`scratch-pad-entry${props.extraAction.active ? " active" : ""}`}
-					title={props.extraAction.label}
-					aria-label={props.extraAction.label}
-					onClick={props.extraAction.onClick}
-				>
-					{props.extraAction.icon}
-				</button>
-			)}
-			{props.terminalAction && (
-				<button
-					type="button"
-					className={`terminal-entry${props.terminalAction.active ? " active" : ""}`}
-					title={props.terminalAction.label}
-					aria-label={props.terminalAction.label}
-					onClick={props.terminalAction.onClick}
-				>
-					{props.terminalAction.icon}
-				</button>
-			)}
-			{props.filesAction && (
-				<button
-					type="button"
-					className={`files-entry${props.filesAction.active ? " active" : ""}`}
-					title={props.filesAction.label}
-					aria-label={props.filesAction.label}
-					onClick={props.filesAction.onClick}
-				>
-					{props.filesAction.icon}
-				</button>
-			)}
-			{props.editorsAction && (
-				<button
-					type="button"
-					className={`editors-entry${props.editorsAction.active ? " active" : ""}`}
-					title={props.editorsAction.label}
-					aria-label={props.editorsAction.label}
-					onClick={props.editorsAction.onClick}
-				>
-					{props.editorsAction.icon}
-				</button>
-			)}
-			{props.browserAction && (
-				<button
-					type="button"
-					className={`browser-entry${props.browserAction.active ? " active" : ""}`}
-					title={props.browserAction.label}
-					aria-label={props.browserAction.label}
-					onClick={props.browserAction.onClick}
-				>
-					{props.browserAction.icon}
-				</button>
+			{sideActions.length > 0 && (
+				<div className="outline-tools" ref={toolsRef}>
+					<button
+						type="button"
+						className={`outline-tools-toggle${toolsOpen || anySideActive ? " active" : ""}`}
+						title={t("outline.tools")}
+						aria-label={t("outline.tools")}
+						aria-expanded={toolsOpen}
+						onClick={() => setToolsOpen((open) => !open)}
+					>
+						···
+					</button>
+					{toolsOpen && (
+						<div className="outline-tools-menu" role="menu">
+							{props.extraAction && (
+								<button
+									type="button"
+									className={`scratch-pad-entry${props.extraAction.active ? " active" : ""}`}
+									title={props.extraAction.label}
+									aria-label={props.extraAction.label}
+									onClick={(e) => {
+										props.extraAction?.onClick(e);
+										setToolsOpen(false);
+									}}
+								>
+									{props.extraAction.icon}
+								</button>
+							)}
+							{props.terminalAction && (
+								<button
+									type="button"
+									className={`terminal-entry${props.terminalAction.active ? " active" : ""}`}
+									title={props.terminalAction.label}
+									aria-label={props.terminalAction.label}
+									onClick={(e) => {
+										props.terminalAction?.onClick(e);
+										setToolsOpen(false);
+									}}
+								>
+									{props.terminalAction.icon}
+								</button>
+							)}
+							{props.filesAction && (
+								<button
+									type="button"
+									className={`files-entry${props.filesAction.active ? " active" : ""}`}
+									title={props.filesAction.label}
+									aria-label={props.filesAction.label}
+									onClick={(e) => {
+										props.filesAction?.onClick(e);
+										setToolsOpen(false);
+									}}
+								>
+									{props.filesAction.icon}
+								</button>
+							)}
+							{props.editorsAction && (
+								<button
+									type="button"
+									className={`editors-entry${props.editorsAction.active ? " active" : ""}`}
+									title={props.editorsAction.label}
+									aria-label={props.editorsAction.label}
+									onClick={(e) => {
+										props.editorsAction?.onClick(e);
+										setToolsOpen(false);
+									}}
+								>
+									{props.editorsAction.icon}
+								</button>
+							)}
+							{props.browserAction && (
+								<button
+									type="button"
+									className={`browser-entry${props.browserAction.active ? " active" : ""}`}
+									title={props.browserAction.label}
+									aria-label={props.browserAction.label}
+									onClick={(e) => {
+										props.browserAction?.onClick(e);
+										setToolsOpen(false);
+									}}
+								>
+									{props.browserAction.icon}
+								</button>
+							)}
+						</div>
+					)}
+				</div>
 			)}
 		</div>
 	);

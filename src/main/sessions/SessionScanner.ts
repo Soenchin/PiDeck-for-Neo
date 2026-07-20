@@ -454,29 +454,23 @@ export class SessionScanner {
 
   private async isSameProject(summary: SessionSummary, projectPath: string) {
     const normalizedProject = this.normalize(projectPath);
-    const normalizedSessionProject = summary.projectPath ? this.normalize(summary.projectPath) : "";
-    if (normalizedSessionProject === normalizedProject) return true;
-    if (await this.isParentSessionForProject(normalizedSessionProject, normalizedProject, summary.filePath)) return true;
-    return this.normalize(summary.filePath).includes(this.safePathToken(projectPath));
-  }
-
-  private async isParentSessionForProject(sessionProject: string, projectPath: string, filePath: string) {
-    // 早期用户常在 home 目录启动 pi 再操作子项目；这类历史 session 的 cwd 是父目录，
-    // 但文件内容可能明确提到当前项目。仅对父目录 session 做内容校验，避免把无关 home 会话全部展示到子项目下。
-    if (!sessionProject || !projectPath.startsWith(`${sessionProject}/`)) return false;
-    const text = await this.readCachedText(filePath);
-    return text.includes(projectPath);
-  }
-
-  private async readCachedText(filePath: string) {
-    try {
-      const raw = this.isWslPath(filePath)
-        ? await this.readWslFile(filePath)
-        : readFileSync(filePath, "utf8");
-      return raw.replace(/\\/g, "/").toLowerCase();
-    } catch {
-      return "";
+    const normalizedSessionProject = summary.projectPath
+      ? this.normalize(summary.projectPath)
+      : "";
+    // 只认 session 自身的 cwd/projectPath 精确匹配。
+    // 旧逻辑会把父目录会话（如 X:\CC）在正文提到子项目路径时误归到 pets 等子项目，
+    // 导致同一会话在多个项目下重复显示，并在点开时用错误 projectId 重新拉起 Agent。
+    if (normalizedSessionProject && normalizedSessionProject === normalizedProject) {
+      return true;
     }
+    // 没有 cwd 元数据时，仅用会话目录 token 精确匹配（整段目录名），避免 `--x--cc--` 被
+    // `--x--cc-projects-pets--` 这类子串误伤。
+    if (!normalizedSessionProject) {
+      const token = this.safePathToken(projectPath);
+      const parts = this.normalize(summary.filePath).split("/");
+      return parts.some((part) => part === token);
+    }
+    return false;
   }
 
   private normalize(path: string) {

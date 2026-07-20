@@ -3480,11 +3480,12 @@ export function App() {
     if (!projectId) return;
     const project = projects.find((item) => item.id === projectId);
     if (!project) return;
+    // 同一 sessionPath 全局只应有一个 Agent。不要再要求 projectId 相同：
+    // 否则会话被错误挂到子项目（如 pets）后，从真正归属项目（CC）点开会漏掉已有 Agent，
+    // 进而新开一条会话文件。
     const existing = sessionPath
-      ? [...displayAgents, ...pendingAgentsRef.current].find(
-          (agent) =>
-            agent.projectId === projectId &&
-            isSameSessionPath(agent.sessionPath, sessionPath),
+      ? [...displayAgents, ...pendingAgentsRef.current].find((agent) =>
+          isSameSessionPath(agent.sessionPath, sessionPath),
         )
       : undefined;
     if (existing) {

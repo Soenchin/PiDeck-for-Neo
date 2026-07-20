@@ -2745,6 +2745,7 @@ app.whenReady().then(async () => {
 		configManager,
 		rpcLogger,
 		appLogger,
+		(path) => projectStore.findByPath(path),
 	);
 	webServiceManager = new WebServiceManager({
 		listProjects: () => projectStore.list(),

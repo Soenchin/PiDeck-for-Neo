@@ -91,10 +91,10 @@
   --space-6: 24px;
   --space-8: 32px;
   --radius-xs: 4px;
-  --radius-sm: 5px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 8px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
   --radius-pill: 999px;
   --control-height-xs: 24px;
   --control-height-sm: 28px;
@@ -1702,17 +1702,20 @@ body:not(.is-list-resizing)
   background: var(--color-bg-hover);
 }
 .conversation.active {
-  background: var(--color-bg-active);
+  background: color-mix(in srgb, var(--color-accent-soft) 58%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 .conversation.active::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 5px;
-  bottom: 5px;
-  width: 3px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 .conversation-avatar {
   width: 24px;
@@ -2298,6 +2301,7 @@ body:not(.is-list-resizing)
   );
 }
 .agent-row {
+  position: relative;
   grid-template-columns: minmax(0, 1fr);
   min-height: 28px;
   padding: 4px 6px 4px 28px;
@@ -2307,7 +2311,7 @@ body:not(.is-list-resizing)
   border-radius: var(--radius-md);
   transition: background 0.1s ease;
 }
-.agent-row::before {
+.agent-row:not(.active)::before {
   display: none;
 }
 .agent-row::after {
@@ -2327,9 +2331,21 @@ body:not(.is-list-resizing)
   font-weight: 500;
 }
 .agent-row.active {
-  background: color-mix(in srgb, var(--color-accent-soft) 46%, transparent);
+  background: color-mix(in srgb, var(--color-accent-soft) 58%, transparent);
   box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-accent) 10%, transparent);
+    color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.agent-row.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 45%, transparent);
+  display: block;
 }
 .agent-row.active .conversation-title strong {
   color: var(--color-text-primary);
@@ -2373,6 +2389,7 @@ body:not(.is-list-resizing)
   margin: 0;
 }
 .session-row {
+  position: relative;
   grid-template-columns: minmax(0, 1fr);
   min-height: 28px;
   margin: 2px 0 0 8px;
@@ -2386,9 +2403,21 @@ body:not(.is-list-resizing)
   background: var(--color-bg-hover);
 }
 .session-row.active {
-  background: color-mix(in srgb, var(--color-accent-soft) 46%, transparent);
+  background: color-mix(in srgb, var(--color-accent-soft) 58%, transparent);
   box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-accent) 10%, transparent);
+    color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.session-row.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 45%, transparent);
+  display: block;
 }
 .session-row .conversation-title {
   display: flex;
@@ -2577,18 +2606,14 @@ body.is-terminal-resizing {
   transition: grid-template-rows 120ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* ── 内容行宽限制：仅在 --content-max-width 由 JS 注入时生效 ── */
-.chat-pane[style*="--content-max-width"] .message-list {
-  width: min(100%, var(--content-max-width));
-  max-width: var(--content-max-width);
-  margin-inline: auto;
-}
-.chat-pane[style*="--content-max-width"] .composer-box,
-.chat-pane[style*="--content-max-width"] .image-preview-area,
-.chat-pane[style*="--content-max-width"] .extension-widgets-container,
-.chat-pane[style*="--content-max-width"] .composer-footer {
-  width: min(100%, var(--content-max-width));
-  max-width: var(--content-max-width);
+/* ── 内容行宽限制：默认给中栏呼吸感；设置注入 --content-max-width 时覆盖 ── */
+.message-list,
+.composer-box,
+.image-preview-area,
+.extension-widgets-container,
+.composer-footer {
+  width: min(100%, var(--content-max-width, 920px));
+  max-width: var(--content-max-width, 920px);
   margin-inline: auto;
 }
 .chat-header {
@@ -4231,7 +4256,7 @@ body.is-terminal-resizing .terminal-resize-handle::before {
   width: 100%;
   min-width: 0;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   background: transparent;
   overflow: hidden;
   transition:
@@ -8515,7 +8540,51 @@ body.is-composer-resizing .composer-resize-handle::after {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  gap: 8px;
+}
+.outline-tools {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.outline-tools-toggle {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-panel);
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  letter-spacing: 0.08em;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.outline-tools-toggle:hover,
+.outline-tools-toggle.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.outline-tools-menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 5px;
+  animation: outline-tools-in 0.14s ease;
+}
+@keyframes outline-tools-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .outline-zone {
   position: relative;
@@ -9199,6 +9268,8 @@ body.is-composer-resizing .composer-resize-handle::after {
 .session-status .ctx-chip {
   max-width: none;
   flex: 0 0 auto;
+  gap: 6px;
+  padding: 0 12px;
   color: var(--color-brand-green);
   background: color-mix(
     in srgb,
@@ -9206,6 +9277,21 @@ body.is-composer-resizing .composer-resize-handle::after {
     var(--color-bg-panel)
   );
   border-color: color-mix(in srgb, var(--color-brand-green) 20%, transparent);
+}
+.session-status .ctx-chip-main {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.session-status .ctx-chip-sep {
+  opacity: 0.55;
+}
+.session-status .ctx-chip-window {
+  color: color-mix(
+    in srgb,
+    var(--color-brand-green) 78%,
+    var(--color-text-secondary)
+  );
+  font-variant-numeric: tabular-nums;
 }
 .session-status .cache-chip {
   max-width: none;

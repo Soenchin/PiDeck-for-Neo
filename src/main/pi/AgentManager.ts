@@ -1,7 +1,7 @@
 import { app, type BrowserWindow, Notification } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import type {
@@ -113,6 +113,7 @@ export class AgentManager {
 		private readonly configManager: ConfigManager,
 		private readonly rpcLogger?: RpcLogger,
 		private readonly appLogger?: AppLogger,
+		private readonly findProjectByPath?: (path: string) => Project | null | undefined,
 	) {}
 
 	list() {
@@ -216,22 +217,83 @@ export class AgentManager {
 	}
 
 	async create(input: CreateAgentInput) {
-		const sessionKey = this.normalizeSessionPathForCompare(input.sessionPath);
-		if (!sessionKey) return this.createUnlocked(input);
+		const resolvedInput = this.resolveCreateInput(input);
+		const sessionKey = this.normalizeSessionPathForCompare(resolvedInput.sessionPath);
+		if (!sessionKey) return this.createUnlocked(resolvedInput);
 
 		const existingForSession = this.findRuntimeBySessionKey(sessionKey);
-		if (existingForSession) return existingForSession.tab;
+		if (existingForSession) {
+			return this.realignRuntimeProject(existingForSession, resolvedInput.projectId).tab;
+		}
 
 		const pendingCreate = this.creatingSessionAgents.get(sessionKey);
 		if (pendingCreate) return pendingCreate;
 
 		// 历史会话激活属于“一个 sessionPath 只能对应一个 Agent”的业务规则；
 		// 先登记 in-flight Promise，再启动真实创建，防止第二次点击绕过 agents map 检查。
-		const createPromise = this.createUnlocked(input).finally(() => {
+		const createPromise = this.createUnlocked(resolvedInput).finally(() => {
 			this.creatingSessionAgents.delete(sessionKey);
 		});
 		this.creatingSessionAgents.set(sessionKey, createPromise);
 		return createPromise;
+	}
+
+	/**
+	 * 按 session 文件自身的 cwd 纠正 projectId。
+	 * 避免父项目会话被误归到子项目后，从错误入口打开时用错 cwd 重新 spawn。
+	 */
+	private resolveCreateInput(input: CreateAgentInput): CreateAgentInput {
+		if (!input.sessionPath || !this.findProjectByPath) return input;
+		const sessionCwd = this.readSessionCwd(input.sessionPath);
+		if (!sessionCwd) return input;
+		const matched = this.findProjectByPath(sessionCwd);
+		if (!matched || matched.id === input.projectId) return input;
+		void this.appLogger?.info("agent", "Agent create project realigned by session cwd", {
+			sessionPath: input.sessionPath,
+			requestedProjectId: input.projectId,
+			resolvedProjectId: matched.id,
+			sessionCwd,
+		});
+		return {
+			...input,
+			projectId: matched.id,
+			title: input.title,
+		};
+	}
+
+	private readSessionCwd(sessionPath: string): string | undefined {
+		try {
+			const raw = readFileSync(sessionPath, "utf8");
+			for (const line of raw.split(/\r?\n/).filter(Boolean).slice(0, 40)) {
+				try {
+					const entry = JSON.parse(line) as Record<string, unknown>;
+					const cwd =
+						(typeof entry.cwd === "string" && entry.cwd) ||
+						(typeof (entry.session as { cwd?: string } | undefined)?.cwd === "string"
+							? (entry.session as { cwd?: string }).cwd
+							: undefined) ||
+						(typeof (entry.data as { cwd?: string } | undefined)?.cwd === "string"
+							? (entry.data as { cwd?: string }).cwd
+							: undefined);
+					if (cwd) return cwd;
+				} catch {
+					// skip bad line
+				}
+			}
+		} catch {
+			return undefined;
+		}
+		return undefined;
+	}
+
+	private realignRuntimeProject(runtime: AgentRuntime, projectId: string) {
+		if (runtime.tab.projectId === projectId) return runtime;
+		const project = this.getProject(projectId);
+		if (!project) return runtime;
+		runtime.tab.projectId = project.id;
+		runtime.tab.cwd = project.path;
+		this.emitState();
+		return runtime;
 	}
 
 	private normalizeSessionPathForCompare(sessionPath?: string) {
@@ -339,7 +401,7 @@ export class AgentManager {
 				agentId: existingForSession.tab.id,
 				sessionPath: input.sessionPath,
 			});
-			return existingForSession.tab;
+			return this.realignRuntimeProject(existingForSession, project.id).tab;
 		}
 
 		const tab: AgentTab = {
