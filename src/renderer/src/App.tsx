@@ -515,17 +515,28 @@ function migrateAgentRecord<T>(
   return next;
 }
 
+function PreloadMissingScreen() {
+  useEffect(() => {
+    // 让独立启动遮罩退场，露出错误页
+    window.dispatchEvent(new Event("neonisch-boot-ready"));
+  }, []);
+
+  return (
+    <div className="boot-screen boot-screen--neo-error">
+      <div className="boot-logo boot-logo--neo-error" aria-hidden="true">
+        <svg viewBox="-60 -60 120 120" width="40" height="40">
+          <path d="M-48 22 L-28 -20 L-18 -52 L0 -18 L18 -52 L28 -20 L48 22 L0 52 Z" fill="#54e89a" />
+          <path d="M0 -30 L13 -4 L0 24 L-13 -4 Z" fill="#3fbf86" />
+        </svg>
+      </div>
+      <span>{t("app.preloadMissing")}</span>
+    </div>
+  );
+}
+
 export function App() {
   if (missingElectronPreload) {
-    return (
-      <div className="boot-screen root-loading">
-        <div className="boot-logo root-loading-logo">
-          <LogoMark />
-        </div>
-        <strong>PiDeck</strong>
-        <span>{t("app.preloadMissing")}</span>
-      </div>
-    );
+    return <PreloadMissingScreen />;
   }
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -1752,8 +1763,31 @@ export function App() {
   const canReorderProjects = search.trim().length === 0;
 
   useEffect(() => {
-    window.setTimeout(() => void refreshProjects(), 0);
-    window.setTimeout(() => void api.agents.list().then(setAgents), 0);
+    // 启动遮罩：等项目列表 + agent 列表首批就绪后再退场（带最低展示时长由 main.tsx 控制）
+    let bootCancelled = false;
+    void (async () => {
+      try {
+        const [nextProjects, nextAgents] = await Promise.all([
+          api.projects.list().catch(() => [] as Project[]),
+          api.agents.list().catch(() => [] as AgentTab[]),
+        ]);
+        if (bootCancelled) return;
+        setProjects(nextProjects);
+        setAgents(nextAgents);
+        if (nextProjects.length > 0) {
+          setActiveProjectId((current) => current ?? nextProjects[0].id);
+        }
+        // worktree 刷新不阻塞开屏退场，挂后台
+        for (const p of nextProjects) {
+          if (p.worktreeEnabled) void refreshWorktrees(p.id);
+        }
+      } finally {
+        if (!bootCancelled) {
+          window.dispatchEvent(new Event("neonisch-boot-ready"));
+        }
+      }
+    })();
+
     void api.editors.list().then(setExternalEditors).catch(() => undefined);
     void api.app
       .info()
@@ -1993,6 +2027,7 @@ export function App() {
       setTrustRequest(request);
     });
     return () => {
+      bootCancelled = true;
       offProjects();
       offState();
       offMessages();

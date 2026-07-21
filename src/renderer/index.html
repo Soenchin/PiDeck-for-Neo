@@ -9,17 +9,115 @@
     />
     <title></title>
     <style>
-      /* 启动画面 CSS 内联在这里，确保 JS 和主 CSS 加载前画面就能正确渲染 */
+      /* 启动遮罩独立于 #root，React 挂载后仍可控制退场动画 */
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { height: 100%; overflow: hidden; background: #eef0f3; }
-      .root-loading { width: 100vw; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
-      .root-loading-logo { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 14px; background: linear-gradient(145deg, #1a9e3c, #0d7a2a); box-shadow: 0 12px 28px rgba(26, 158, 60, 0.2); }
-      .root-loading strong { color: #1f2937; font-size: 16px; font-weight: 600; font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; }
-      .root-loading span { color: #6b7280; font-size: 13px; font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; }
+      html, body {
+        height: 100%;
+        overflow: hidden;
+        background: #030807;
+      }
+      #root {
+        height: 100%;
+      }
+      .boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: grid;
+        place-items: center;
+        pointer-events: none;
+        opacity: 1;
+        transform: scale(1);
+        transition:
+          opacity 420ms cubic-bezier(0.22, 1, 0.36, 1),
+          transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .boot-splash-bg {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 50% 42%, #123b2e 0%, #071b16 42%, #030807 100%);
+      }
+      .boot-splash-logo {
+        position: relative;
+        width: 84px;
+        height: 84px;
+        animation: boot-breathe 2.2s ease-in-out infinite;
+      }
+      .boot-logo-layer {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        transition: opacity 500ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .boot-logo-mono {
+        opacity: 1;
+      }
+      .boot-logo-color {
+        opacity: 0;
+      }
+      .boot-splash.is-ready .boot-logo-mono {
+        opacity: 0;
+      }
+      .boot-splash.is-ready .boot-logo-color {
+        opacity: 1;
+      }
+      .boot-splash.is-ready .boot-splash-logo {
+        animation: none;
+        transform: scale(1.08);
+        transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .boot-splash.is-leaving {
+        opacity: 0;
+        transform: scale(1.16);
+      }
+      @keyframes boot-breathe {
+        0%, 100% { transform: scale(0.96); opacity: 0.88; }
+        50% { transform: scale(1); opacity: 1; }
+      }
     </style>
   </head>
   <body>
-    <div id="root"><div class="boot-screen root-loading"><div class="boot-logo root-loading-logo"><svg viewBox="140 140 520 520" width="32" height="32" aria-hidden="true"><path fill="#fff" fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/><path fill="#fff" d="M517.36 400H634.72V634.72H517.36Z"/></svg></div><strong>PiDeck</strong><span>正在启动…</span></div></div>
+    <div id="boot-splash" class="boot-splash" aria-hidden="true">
+      <div class="boot-splash-bg"></div>
+      <div class="boot-splash-logo">
+        <!--
+          NeoNisch Logo A（官方几何，同 neonisch_logo_A_white_transparent）
+          evenodd 复合路径：外轮廓实心 → 中菱形挖空 → 内菱形实心 → 圆心挖空
+        -->
+        <svg class="boot-logo-layer boot-logo-mono" viewBox="-60 -60 120 120" aria-hidden="true">
+          <path
+            fill="#FFFFFF"
+            fill-rule="evenodd"
+            d="M-48 22 L-28 -20 L-18 -52 L0 -18 L18 -52 L28 -20 L48 22 L0 52 Z
+               M0 -38 L20 -2 L0 34 L-20 -2 Z
+               M0 -30 L13 -4 L0 24 L-13 -4 Z
+               M9 0 A9 9 0 1 1 -9 0 A9 9 0 1 1 9 0 Z"
+          />
+        </svg>
+        <svg class="boot-logo-layer boot-logo-color" viewBox="-60 -60 120 120" aria-hidden="true">
+          <defs>
+            <linearGradient id="neoBootGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#b8ffd0"/>
+              <stop offset="44%" stop-color="#67e7a0"/>
+              <stop offset="72%" stop-color="#1cb67a"/>
+              <stop offset="100%" stop-color="#08704e"/>
+            </linearGradient>
+          </defs>
+          <path
+            fill="url(#neoBootGrad)"
+            fill-rule="evenodd"
+            d="M-48 22 L-28 -20 L-18 -52 L0 -18 L18 -52 L28 -20 L48 22 L0 52 Z
+               M0 -38 L20 -2 L0 34 L-20 -2 Z
+               M0 -30 L13 -4 L0 24 L-13 -4 Z
+               M9 0 A9 9 0 1 1 -9 0 A9 9 0 1 1 9 0 Z"
+          />
+        </svg>
+      </div>
+    </div>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

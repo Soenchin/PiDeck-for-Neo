@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-60 -60 120 120" width="1024" height="1024" role="img" aria-label="NeoNisch A mono black on white">
+  <title>NeoNisch A mono black on white</title>
+  <rect x="-60" y="-60" width="120" height="120" fill="#FFFFFF"/>
+  <path d="M-48 22 L-28 -20 L-18 -52 L0 -18 L18 -52 L28 -20 L48 22 L0 52 Z" fill="#000000"/>
+  <path d="M0 -38 L20 -2 L0 34 L-20 -2 Z" fill="#FFFFFF"/>
+  <path d="M0 -30 L13 -4 L0 24 L-13 -4 Z" fill="#000000"/>
+  <circle cx="0" cy="0" r="9" fill="#FFFFFF"/>
+</svg>

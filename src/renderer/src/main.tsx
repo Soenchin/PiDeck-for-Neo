@@ -5,6 +5,10 @@ import { App } from "./App";
 import "./styles.css";
 import "./file-icons.css";
 
+const BOOT_MIN_MS = 450;
+const BOOT_COLOR_MS = 500;
+const BOOT_LEAVE_MS = 420;
+
 function writeStartupLog(level: AppLogLevel, message: string, detail?: unknown) {
   window.piDesktop?.app.rendererLog(level, "renderer", message, detail).catch(() => undefined);
 }
@@ -29,6 +33,47 @@ window.addEventListener("unhandledrejection", (event) => {
 writeStartupLog("info", "Renderer bootstrap started", {
   url: window.location.href,
 });
+
+const bootStartedAt = performance.now();
+let bootDismissed = false;
+
+function dismissBootSplash() {
+  if (bootDismissed) return;
+  bootDismissed = true;
+
+  const splash = document.getElementById("boot-splash");
+  if (!splash) return;
+
+  const waitMin = Math.max(0, BOOT_MIN_MS - (performance.now() - bootStartedAt));
+
+  window.setTimeout(() => {
+    splash.classList.add("is-ready");
+    writeStartupLog("info", "Boot splash color transition started");
+
+    window.setTimeout(() => {
+      splash.classList.add("is-leaving");
+      writeStartupLog("info", "Boot splash leave started");
+
+      window.setTimeout(() => {
+        splash.remove();
+        writeStartupLog("info", "Boot splash removed");
+      }, BOOT_LEAVE_MS);
+    }, BOOT_COLOR_MS);
+  }, waitMin);
+}
+
+// App 在基础数据就绪后派发此事件；preload 缺失时也会派发，避免遮罩永远盖住错误页。
+window.addEventListener("neonisch-boot-ready", () => {
+  dismissBootSplash();
+}, { once: true });
+
+// 兜底：最多 8 秒强制退场，防止初始化卡住导致永远卡在开屏。
+window.setTimeout(() => {
+  if (!bootDismissed) {
+    writeStartupLog("warn", "Boot splash force dismiss after timeout");
+    dismissBootSplash();
+  }
+}, 8000);
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

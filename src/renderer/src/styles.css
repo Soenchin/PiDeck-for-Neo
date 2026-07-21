@@ -545,6 +545,28 @@ select:focus-visible {
 .boot-screen span {
   color: var(--color-text-tertiary);
 }
+/* preload 缺失错误页：与启动遮罩同系的深黑绿，仅保留错误文案 */
+.boot-screen--neo-error {
+  gap: 14px;
+  color: #d7f7e5;
+  background:
+    radial-gradient(circle at 50% 42%, #123b2e 0%, #071b16 42%, #030807 100%);
+}
+.boot-logo--neo-error {
+  width: 64px;
+  height: 64px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.boot-screen--neo-error span {
+  max-width: 360px;
+  padding: 0 24px;
+  text-align: center;
+  color: rgba(183, 255, 208, 0.78);
+  font-size: 13px;
+  line-height: 1.5;
+}
 
 /* ── environment body ───────────────────────────── */
 .environment-body {
