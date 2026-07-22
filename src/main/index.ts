@@ -2782,7 +2782,8 @@ app.whenReady().then(async () => {
 		}
 	}
 
-	// 自动部署 PiDeck 内置扩展：这些扩展提供桌面端差异预览、提问卡片和 Plan Mode。
+	// 自动部署 PiDeck 内置扩展：这些扩展提供差异预览、提问卡片、Plan Mode、Todo，
+	// 以及 Windows 下对 `> nul` 的防护。扩展由 pi 自动发现并加载。
 	// 放到 pi 自动发现目录后，新建/重启的 RPC Agent 会自动加载；只在内容变更时覆盖，避免用户目录产生无意义写入。
 	// Read disabled extensions so disabled built-in extensions aren't re-deployed at startup
 	const disabledExtList: string[] = await readFile(join(app.getPath("home"), ".pi", "agent", "settings.json"), "utf-8")
@@ -2792,6 +2793,7 @@ app.whenReady().then(async () => {
 
 	for (const extensionName of [
 		"pi-deck-file-capture.ts",
+		"pi-deck-nul-redirect-fix.ts",
 		"pi-deck-ask-question.ts",
 		"pi-deck-plan-mode.ts",
 		"pi-deck-todo.ts",
