@@ -1450,11 +1450,14 @@ export function App() {
   // 这是 ask_question 在 pi RPC 模式下的表现方式：pi 通过 extension_ui_request 将
   // 等待用户回答的对话框发送到桌面端，包含 requestId、title、options 等完整信息。
   const activeUiAsk = useMemo(() => {
-    if (!activeUiRequest) return undefined;
+    if (!activeUiRequest || !activeAgentId) return undefined;
     return Object.values(activeUiRequest).find(
-      (req) => !req.completed && ["select", "confirm", "input", "editor"].includes(req.method),
+      (req) =>
+        req.agentId === activeAgentId &&
+        !req.completed &&
+        ["select", "confirm", "input", "editor"].includes(req.method),
     );
-  }, [activeUiRequest]);
+  }, [activeUiRequest, activeAgentId]);
   // dialog 显示条件：仅当有活跃的交互式 UI 请求时
   const showAskDialog = activeUiAsk !== undefined;
   // 用 body class 控制内联 ask 卡片的显示
@@ -2001,26 +2004,30 @@ export function App() {
         return;
       }
 
-      setActiveUiRequest((current) => {
-        // 如果 requestId 已存在且带了 completed 标记，清除该请求
-        if (current?.[request.requestId] && request.completed) {
+      // completed 是终态通知：无论 React state 是否已提交，都只能清理，绝不能把旧请求重新插回队列。
+      if (request.completed) {
+        setActiveUiRequest((current) => {
+          if (!current?.[request.requestId]) return current;
           const next = { ...current };
           delete next[request.requestId];
-          if (Object.keys(next).length === 0) return null;
-          return next;
-        }
-        /* 用户通过 select 弹框自定义输入框提交自定义值后，Pi 会收到 "✎ 自行输入..."
-           选项值并发送 input 弹框让用户输入。此处检测到 pending 值后自动提交 input
-           弹框，对用户表现为一次提交即完成，无需二次输入。 */
-        if (request.method === "input" && pendingCustomInputRef.current) {
-          const value = pendingCustomInputRef.current;
-          pendingCustomInputRef.current = "";
-          api.agents.sendUiResponse(activeAgentIdRef.current ?? "", request.requestId, { value });
-          return current; // 不显示 input 弹框
-        }
-        // 新增或更新 UI 请求
-        return { ...(current ?? {}), [request.requestId]: request as UiRequest };
-      });
+          return Object.keys(next).length > 0 ? next : null;
+        });
+        return;
+      }
+
+      /* 自定义输入会由 Pi 产生一个新的 input request。自动回传必须在 state updater 外：
+         React StrictMode 可能重复调用 updater，进而让相同 requestId 回传两次并卡住批量问答。 */
+      if (request.method === "input" && pendingCustomInputRef.current) {
+        const value = pendingCustomInputRef.current;
+        pendingCustomInputRef.current = "";
+        void api.agents.sendUiResponse(request.agentId, request.requestId, { value });
+        return; // 不显示中间 input 框
+      }
+
+      setActiveUiRequest((current) => ({
+        ...(current ?? {}),
+        [request.requestId]: request as UiRequest,
+      }));
     });
     // 监听项目信任确认请求：主进程在启动 pi 前对含 .pi 资源的项目发起，弹窗等待用户决策
     const offTrustRequest = api.agents.onTrustRequest((request) => {
