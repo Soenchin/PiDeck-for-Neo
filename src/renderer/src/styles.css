@@ -1159,6 +1159,20 @@ body.is-resizing .wechat-shell {
   /* 衬线字标的视觉重心偏高，向下微调以对齐应用标的几何中心。 */
   transform: translateY(2px);
 }
+/* 侧栏收起时 --list-width 为 0，品牌区仍会溢出 logo，需彻底收起避免压住会话标题。 */
+.custom-titlebar-enabled.list-collapsed .titlebar-brand {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.custom-titlebar-enabled.list-collapsed .titlebar-brand .neon-titlebar-app-mark,
+.custom-titlebar-enabled.list-collapsed .titlebar-brand .brand-wordmark {
+  display: none;
+}
 .custom-titlebar-enabled .list-toolbar {
   height: 0;
   min-height: 0;
