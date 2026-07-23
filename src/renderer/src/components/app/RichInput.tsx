@@ -4,6 +4,7 @@ import {
 	useLayoutEffect,
 	useMemo,
 	useRef,
+	useState,
 } from "react";
 
 /**
@@ -32,6 +33,30 @@ export type RichInputChip = {
 	label: string;
 };
 
+/** 还原文件 chip 的真实路径；含空格的路径以 @"..." 形式存储，避免 token 被空白截断。 */
+export function getRichInputFilePath(raw: string): string {
+	const path = raw.startsWith("@") ? raw.slice(1) : raw;
+	return path.startsWith('"') && path.endsWith('"') ? path.slice(1, -1) : path;
+}
+
+/** 将路径转换为可嵌入 prompt 的文件引用。路径中有空格时用引号保持单个原子 token。 */
+export function formatRichInputFileReference(path: string): string {
+	return `@${/\s/.test(path) ? `"${path}"` : path}`;
+}
+
+function isAbsoluteFilePath(path: string): boolean {
+	return /^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\/]+[\\/]/.test(path) || path.startsWith("/");
+}
+
+/** 仅把“整段粘贴内容本身就是一个路径”转引用，绝不扫描普通句子中的路径片段。 */
+function parsePastedFilePath(text: string, validFilePaths?: Set<string>): string | null {
+	const trimmed = text.trim();
+	if (!trimmed || /[\r\n]/.test(trimmed)) return null;
+	const path = trimmed.startsWith('"') && trimmed.endsWith('"') ? trimmed.slice(1, -1) : trimmed;
+	const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+	return isAbsoluteFilePath(path) || validFilePaths?.has(normalized) ? path : null;
+}
+
 export type RichInputProps = {
 	value: string;
 	onChange: (value: string, cursor: number) => void;
@@ -54,6 +79,8 @@ export type RichInputProps = {
 	/** 有效文件路径集合，白名单：不在集合内的 @ 引用不渲染 chip */
 	validFilePaths?: Set<string>;
 	validSessionRefs?: Set<string>;
+	/** 返回文件图片的 data URL；非图片或读取失败返回 null。 */
+	getFileImagePreview?: (path: string) => Promise<string | null>;
 };
 
 type TextNodeRun = {
@@ -125,18 +152,19 @@ export function parseRichInputChips(
 		if (m.index === slashRe.lastIndex) slashRe.lastIndex++;
 	}
 
-	// @path：前置排除 : / 和 \w；必须像文件路径（含 /、\\ 或 .），避免普通 @mention 被误渲染成不可编辑 chip。
-	const atRe = /(?<![:/.\w#!~])(@[^\s@]+)/g;
+	// @path：前置排除 : / 和 \w；支持 @"含空格的绝对路径"。
+	// 裸绝对路径仅由粘贴/拖入流程主动包成 @ 引用，普通手打文本不会被解析器偷偷转换。
+	const atRe = /(?<![:/.\w#!~])(@(?:"[^\r\n@]+"|[^\s@]+))/g;
 	while ((m = atRe.exec(text)) !== null) {
 		const start = m.index;
 		const end = start + m[1].length;
 		if (!overlapsUrl(start, end, urlSpans)) {
-			const seg = m[1].slice(1);
+			const seg = getRichInputFilePath(m[1]);
 			if (!/[\\/.]/.test(seg)) continue;
 			const normalized = seg.replace(/\\/g, "/");
-			// 路径白名单检查：去掉 ./ 前缀后校验文件是否存在
+			// 工作区相对路径必须在文件树白名单中；用户拖入/粘贴的绝对路径则允许作为外部引用。
 			const pathKey = normalized.startsWith("./") ? normalized.slice(2) : normalized;
-			if (validFilePaths && !validFilePaths.has(pathKey)) continue;
+			if (validFilePaths && !validFilePaths.has(pathKey) && !isAbsoluteFilePath(seg)) continue;
 			const label = normalized.includes("/") ? normalized.slice(normalized.lastIndexOf("/") + 1) : normalized;
 			chips.push({ start, end, raw: m[1], kind: "file", label: label || seg });
 		}
@@ -382,12 +410,19 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			onPaste, onDrop, onDragOver, onFocus, onBlur,
 			disabled, placeholder, className, caretRef,
 			onChipClick, validCommandNames, validFilePaths,
-			validSessionRefs,
+			validSessionRefs, getFileImagePreview,
 		} = props;
 
 		const rootRef = useRef<HTMLDivElement | null>(null);
 		const composingRef = useRef(false);
 		const pendingCaretRef = useRef<number | null>(null);
+		const imagePreviewCacheRef = useRef(new Map<string, Promise<string | null>>());
+		const imagePreviewRequestRef = useRef(0);
+		const [imagePreview, setImagePreview] = useState<{
+			src: string;
+			top: number;
+			left: number;
+		} | null>(null);
 
 		// 合并外部 ref 与内部 rootRef
 		const setRef = useCallback(
@@ -465,17 +500,16 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 
 			const caret = getCaretOffset(root);
 
-			// 光标是否在某个 token 内部（含末尾，允许继续输入）
-			const insideActiveToken = chips.some(
-				(c) => caret > c.start && caret <= c.end,
-			);
+			// 仅光标真正落在 token 内部时临时展开原始文本以便续写。
+			// 末尾边界仍保留 chip，才能稳定支持「紧贴右侧按一次 Backspace 删整块」。
+			const activeToken = chips.find((c) => caret > c.start && caret < c.end);
 
 			// DOM 中已存在的 chip 区间
 			const existingRanges = collectChipRanges(root);
 
 			// 期望的 chip 区间（光标在 token 内时排除该 token）
-			const desiredChips = insideActiveToken
-				? chips.filter((c) => !(caret > c.start && caret <= c.end))
+			const desiredChips = activeToken
+				? chips.filter((c) => c !== activeToken)
 				: chips;
 
 			const rangesSame =
@@ -521,9 +555,80 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 			event.preventDefault();
 			const root = rootRef.current;
 			if (!root) return;
-			insertPlainTextAtSelection(root, event.clipboardData.getData("text/plain"));
+			const pastedText = event.clipboardData.getData("text/plain");
+			const filePath = parsePastedFilePath(pastedText, validFilePaths);
+			insertPlainTextAtSelection(
+				root,
+				filePath ? `${formatRichInputFileReference(filePath)} ` : pastedText,
+			);
 			handleInput();
 		};
+
+		/**
+		 * 文件 chip 是原子引用：光标恰好贴在右侧/左侧时，单次退格/删除移除整个路径。
+		 * 不能依赖浏览器对 contenteditable=false 的默认行为：各 Chromium 版本会在删除前
+		 * 先选中 chip 或只删内部节点，随后受控重渲染又把它恢复，体验很飘。
+		 */
+		const removeAdjacentChip = useCallback((key: "Backspace" | "Delete"): boolean => {
+			const root = rootRef.current;
+			if (!root) return false;
+			const selection = window.getSelection();
+			if (!selection || selection.rangeCount === 0 || !selection.getRangeAt(0).collapsed) return false;
+			const caret = getCaretOffset(root);
+			const chip = chips.find((candidate) =>
+				candidate.kind === "file" &&
+				(key === "Backspace" ? candidate.end === caret : candidate.start === caret),
+			);
+			if (!chip) return false;
+			const nextValue = value.slice(0, chip.start) + value.slice(chip.end);
+			pendingCaretRef.current = chip.start;
+			onChange(nextValue, chip.start);
+			onCursorChange(chip.start);
+			return true;
+		}, [chips, onChange, onCursorChange, value]);
+
+		const hideImagePreview = useCallback(() => {
+			imagePreviewRequestRef.current += 1;
+			setImagePreview(null);
+		}, []);
+
+		/** 仅图片文件在 hover 时读取一次并缓存；不让普通文件 chip 发起无意义 IPC。 */
+		const handleMouseOver = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+			if (!getFileImagePreview) return;
+			const target = event.target as HTMLElement;
+			const chip = target.closest?.('.input-chip--file') as HTMLElement | null;
+			if (!chip || !rootRef.current?.contains(chip)) return;
+			const related = event.relatedTarget as HTMLElement | null;
+			if (related?.closest?.('.input-chip--file') === chip) return;
+			const raw = chip.getAttribute("data-raw");
+			if (!raw) return;
+			const path = getRichInputFilePath(raw);
+			const requestId = imagePreviewRequestRef.current + 1;
+			imagePreviewRequestRef.current = requestId;
+			let preview = imagePreviewCacheRef.current.get(path);
+			if (!preview) {
+				preview = getFileImagePreview(path);
+				imagePreviewCacheRef.current.set(path, preview);
+			}
+			void preview.then((src) => {
+				if (!src || imagePreviewRequestRef.current !== requestId) return;
+				const rect = chip.getBoundingClientRect();
+				setImagePreview({
+					src,
+					left: Math.min(rect.left, window.innerWidth - 336),
+					top: Math.min(rect.bottom + 8, window.innerHeight - 276),
+				});
+			});
+		}, [getFileImagePreview]);
+
+		const handleMouseOut = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+			const target = event.target as HTMLElement;
+			const chip = target.closest?.('.input-chip--file') as HTMLElement | null;
+			if (!chip) return;
+			const related = event.relatedTarget as HTMLElement | null;
+			if (related?.closest?.('.input-chip--file') === chip) return;
+			hideImagePreview();
+		}, [hideImagePreview]);
 
 		/** chip 点击：检测点击目标是否为 chip，是则回调上层 */
 		const handleClick = useCallback(
@@ -549,6 +654,10 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 		/** Enter：上层未 consume（非发送）时手动插入 \n，保持扁平 DOM。 */
 		const handleKeyDown = useCallback(
 			(event: React.KeyboardEvent<HTMLDivElement>) => {
+				if ((event.key === "Backspace" || event.key === "Delete") && removeAdjacentChip(event.key)) {
+					event.preventDefault();
+					return;
+				}
 				onKeyDown(event);
 				if (event.defaultPrevented) return;
 
@@ -560,7 +669,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 					// 处理换行（插入 <br> 并正确放置光标），随后触发 input 事件同步 value。
 				}
 			},
-			[onKeyDown, handleInput],
+			[onKeyDown, handleInput, removeAdjacentChip],
 		);
 
 		const handleCompositionStart = () => { composingRef.current = true; };
@@ -573,6 +682,7 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 		].filter(Boolean).join(" ");
 
 		return (
+			<>
 			<div
 				ref={setRef}
 				className={classNames}
@@ -586,6 +696,8 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				onKeyDown={handleKeyDown}
 				onKeyUp={handleSelect}
 				onClick={handleClick}
+				onMouseOver={handleMouseOver}
+				onMouseOut={handleMouseOut}
 				onFocus={onFocus}
 				onBlur={onBlur}
 				onPaste={handlePaste}
@@ -595,6 +707,16 @@ export const RichInput = forwardRef<HTMLDivElement, RichInputProps>(
 				onCompositionEnd={handleCompositionEnd}
 				onSelect={handleSelect}
 			/>
+			{imagePreview && (
+				<div
+					className="input-chip-image-preview"
+					style={{ top: imagePreview.top, left: imagePreview.left }}
+					aria-hidden="true"
+				>
+					<img src={imagePreview.src} alt="" />
+				</div>
+			)}
+			</>
 		);
 	},
 );

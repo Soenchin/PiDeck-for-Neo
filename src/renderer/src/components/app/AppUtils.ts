@@ -480,14 +480,24 @@ export function buildSuggestionItems(
 	}
 	if (trigger.char === "@") {
 		return files
+			// 后端已跳过 .git；这里再过滤一次，避免旧请求、预览数据或异常来源污染输入建议。
+			.filter((file) => !file.relativePath.split(/[\\/]/).some((part) => part === ".git"))
 			.map((file) => ({
 				file,
 				score:
 					fuzzyScore(file.relativePath, keyword) +
 					fuzzyScore(file.name, keyword) * 2,
+				depth: file.relativePath.split(/[\\/]/).length,
+				hidden: file.relativePath.split(/[\\/]/).some((part) => part.startsWith(".")),
 			}))
 			.filter((item) => item.score > 0 || !keyword)
-			.sort((a, b) => b.score - a.score)
+			// 空 @ 时把根目录/浅层的正常项目文件放前面，.github 工作流等隐藏目录不再霸榜。
+			.sort((a, b) =>
+				b.score - a.score ||
+				Number(a.hidden) - Number(b.hidden) ||
+				a.depth - b.depth ||
+				a.file.relativePath.localeCompare(b.file.relativePath),
+			)
 			.slice(0, 8)
 			.map((item) => ({
 				key: item.file.path,

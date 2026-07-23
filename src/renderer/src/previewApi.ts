@@ -278,6 +278,8 @@ export function createPreviewApi(): PiDesktopApi {
 			showInFolder: async () => undefined,
 			readContent: async () => "",
 			readImage: async () => ({ type: "image", data: "", mimeType: "image/png" }),
+			getPath: () => "",
+			saveClipboardImage: async () => "C:/Users/preview/AppData/Local/Temp/pideck-input-images/clipboard-preview.png",
 			writeContent: async () => undefined,
 			delete: async () => undefined,
 			rename: async () => "",

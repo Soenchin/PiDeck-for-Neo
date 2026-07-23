@@ -6826,6 +6826,49 @@ body.is-composer-resizing .composer-resize-handle::after {
   color: var(--color-brand-blue);
   border: 1px solid color-mix(in srgb, var(--color-brand-blue) 28%, transparent);
 }
+/* 文件引用在输入框内必须是原子块：完整路径仍保存在 data-raw 供 Agent 使用，
+   视觉上只显示文件名，且不允许长文件名被拆成多行碎片。 */
+.composer .input-chip--file {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(100%, 360px);
+  white-space: nowrap;
+  vertical-align: baseline;
+  cursor: pointer;
+}
+.composer .input-chip--file .input-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer .input-chip--file:hover {
+  background: color-mix(in srgb, var(--color-brand-blue) 22%, transparent);
+}
+/* 固定到 viewport 避免被 composer 的滚动裁切；图片由主进程读取为 data URL，
+   这样既支持本地文件，也不会将任意 file:// 交给渲染层。 */
+.input-chip-image-preview {
+  position: fixed;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  width: min(320px, calc(100vw - 32px));
+  height: min(260px, calc(100vh - 32px));
+  padding: var(--space-2);
+  overflow: hidden;
+  pointer-events: none;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-xl);
+}
+.input-chip-image-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
 .composer .input-chip--skill,
 .user-turn-text .input-chip--skill {
   background: color-mix(in srgb, var(--color-brand-purple) 15%, transparent);

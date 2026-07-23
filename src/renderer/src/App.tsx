@@ -129,8 +129,10 @@ import {
   type MessageItem,
 } from "./components/app/AppUtils";
 import {
+	formatRichInputFileReference,
 	getCaretOffset as getCaretOffsetOf,
 	getRichInputCaretCoords,
+	getRichInputFilePath,
 	RichInput,
 	type RichInputChip,
 } from "./components/app/RichInput";
@@ -550,6 +552,9 @@ export function App() {
   const [agents, setAgents] = useState<AgentTab[]>([]);
   const [pendingAgents, setPendingAgents] = useState<PendingAgentTab[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>();
+  // 异步刷新文件树时以 ref 识别当前项目，避免旧请求覆盖新项目的 @ 建议。
+  const activeProjectIdRef = useRef<string | undefined>(activeProjectId);
+  activeProjectIdRef.current = activeProjectId;
   const [activeAgentId, setActiveAgentId] = useState<string>();
   // 切换 agent（新会话/恢复会话）时刷新设置，使 pi agent 的 hideThinkingBlock 立即生效
   useEffect(() => {
@@ -2539,10 +2544,18 @@ export function App() {
     }
 
     setExpandedDirs(new Set());
+    const requestedProjectId = activeProjectId;
     void api.files
-      .list(activeProjectId)
-      .then(setFiles)
-      .catch((error) => setLogs((current) => [...current, String(error)]));
+      .list(requestedProjectId)
+      .then((nextFiles) => {
+        // 项目切换很快时，旧请求可能晚于新请求返回；不能让它覆盖当前 @ 文件建议。
+        if (activeProjectIdRef.current === requestedProjectId) setFiles(nextFiles);
+      })
+      .catch((error) => {
+        if (activeProjectIdRef.current === requestedProjectId) {
+          setLogs((current) => [...current, String(error)]);
+        }
+      });
     void api.git
       .branches(activeProjectId)
       .then(setGitInfo)
@@ -2897,6 +2910,8 @@ export function App() {
   async function refreshFiles(projectId = activeProjectId, silent = false) {
     if (!projectId) return;
     const next = await api.files.list(projectId);
+    // 同一项目可能被侧栏刷新与切换 effect 并发读取；仅当前项目允许更新共享文件树。
+    if (activeProjectIdRef.current !== projectId) return;
     setFiles(next);
     if (!silent) showToast(t("app.filesRefreshed"), 1800);
   }
@@ -2909,6 +2924,17 @@ export function App() {
     } catch {
       // 非 Git 项目或 git 未安装，静默置空
       setGitChangedFiles([]);
+    }
+  }
+
+  async function getComposerFileImagePreview(path: string): Promise<string | null> {
+    const resolvedPath = resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path);
+    try {
+      const image = await api.files.readImage(resolvedPath);
+      return `data:${image.mimeType};base64,${image.data}`;
+    } catch {
+      // 非图片、已删除文件或超出读取限制都不打断输入，仅不展示悬停预览。
+      return null;
     }
   }
 
@@ -4530,36 +4556,64 @@ ${goalTextRef.current}
     });
   }
 
-  /** 处理粘贴事件:从剪贴板提取图片 */
+  /** 将外部文件路径插入当前光标位置，统一保证 @ token 的前后边界。 */
+  function insertFileReferences(paths: string[]) {
+    if (paths.length === 0) return;
+    const references = paths.map(formatRichInputFileReference).join(" ");
+    const cursor = composerCursor;
+    // 引用前需保持 token 边界；否则紧贴英文/路径字符时 @ 会被当作普通文本而无法 chip 化。
+    const prefix = cursor > 0 && !/\s/.test(prompt[cursor - 1]) ? " " : "";
+    const insertion = `${prefix}${references} `;
+    const nextPrompt = `${prompt.slice(0, cursor)}${insertion}${prompt.slice(cursor)}`;
+    const nextCursor = cursor + insertion.length;
+    setPrompt(nextPrompt);
+    setComposerCursor(nextCursor);
+    pendingComposerCaretRef.current = nextCursor;
+    setSuggestionsOpen(false);
+    requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  }
+
+  /**
+   * Win+Shift+S 的剪贴板项只有像素数据，没有任何“原文件路径”。
+   * 因此先将其保存在 PiDeck 临时目录，再作为普通文件引用插入，而非走旧的图片附件通道。
+   */
   async function handlePaste(event: React.ClipboardEvent) {
-    const items = Array.from(event.clipboardData.items);
-    for (const item of items) {
-      if (item.type.startsWith("image/")) {
-        event.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          const image = await processImageFile(file);
-          if (image) {
-            setAttachedImages((prev) => [...prev, image]);
-          }
-        }
-        return;
-      }
+    const imageItem = Array.from(event.clipboardData.items).find((item) =>
+      item.type.startsWith("image/"),
+    );
+    if (!imageItem) return;
+    event.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+
+    const image = await processImageFile(file);
+    if (!image) return;
+    try {
+      const path = await api.files.saveClipboardImage({
+        data: image.data,
+        mimeType: image.mimeType,
+      });
+      insertFileReferences([path]);
+    } catch (error) {
+      console.error("Failed to save clipboard image as file reference", error);
+      showToast(t("app.clipboardImageReferenceFailed"));
     }
   }
 
-  /** 处理拖拽事件:支持拖入图片 */
-  async function handleDrop(event: React.DragEvent) {
+  /**
+   * 资源管理器拖入的是“文件引用”而不是图片上传：无论图片或普通文件，均写进句内 token。
+   * getPath 只接收用户刚刚拖入的 File；预加载层不向 renderer 开放目录遍历，路径权限边界不变。
+   */
+  function handleDrop(event: React.DragEvent) {
     event.preventDefault();
-    const files = Array.from(event.dataTransfer.files);
-    for (const file of files) {
-      if (file.type.startsWith("image/")) {
-        const image = await processImageFile(file);
-        if (image) {
-          setAttachedImages((prev) => [...prev, image]);
-        }
-      }
+    const paths = Array.from(event.dataTransfer.files)
+      .map((file) => api.files.getPath(file))
+      .filter(Boolean);
+    if (paths.length === 0) {
+      showToast(t("app.fileReferenceDropFailed"));
+      return;
     }
+    insertFileReferences(paths);
   }
 
   function handleDragOver(event: React.DragEvent) {
@@ -6111,6 +6165,7 @@ ${goalTextRef.current}
               validCommandNames={validCommandNames}
               validFilePaths={validFilePaths}
               validSessionRefs={validSessionRefs}
+              getFileImagePreview={getComposerFileImagePreview}
               caretRef={pendingComposerCaretRef}
               placeholder={
                 isAgentStarting
@@ -6156,7 +6211,7 @@ ${goalTextRef.current}
                 setSuggestionsOpen(false);
               }}
               onChipClick={(chip: RichInputChip) => {
-                if (chip.kind === "file") { const path = chip.raw.slice(1); openFilePath(path); }
+                if (chip.kind === "file") { openFilePath(getRichInputFilePath(chip.raw)); }
                 if (chip.kind === "session") {
                   const s = activeProjectSessions.find((x) => (x.name ?? x.filePath) === chip.label);
                   if (s) { setSessionRefPickerTarget(s); setSessionRefPickerOpen(true); }

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { ipcChannels } from "../shared/ipc";
 import type {
 	YaoPromptListResult,
@@ -150,6 +150,11 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesReadContent, path) as Promise<string>,
 		readImage: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesReadImage, path) as Promise<ImageContent>,
+		// Electron 32+ 不再暴露 File.path；仅将用户拖入的 File 转回本机路径，
+		// 不向渲染层开放任意文件系统枚举能力。
+		getPath: (file: File) => webUtils.getPathForFile(file),
+		saveClipboardImage: (input: { data: string; mimeType: string }) =>
+			ipcRenderer.invoke(ipcChannels.filesSaveClipboardImage, input) as Promise<string>,
 		writeContent: (path: string, content: string) =>
 			ipcRenderer.invoke(ipcChannels.filesWriteContent, path, content) as Promise<void>,
 		delete: (path: string, recursive?: boolean) =>

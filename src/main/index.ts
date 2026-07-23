@@ -1289,6 +1289,30 @@ function registerIpc() {
 		return { type: "image" as const, data: data.toString("base64"), mimeType };
 	});
 
+	ipcMain.handle(
+		ipcChannels.filesSaveClipboardImage,
+		async (_event, input: { data: string; mimeType: string }) => {
+			const extensionByMime: Record<string, string> = {
+				"image/png": "png",
+				"image/jpeg": "jpg",
+				"image/gif": "gif",
+				"image/webp": "webp",
+			};
+			const extension = extensionByMime[input.mimeType];
+			if (!extension) throw new Error("Unsupported clipboard image format");
+			const data = Buffer.from(input.data, "base64");
+			if (data.byteLength === 0 || data.byteLength > 10 * 1024 * 1024) {
+				throw new Error("Clipboard image exceeds the 10MB limit");
+			}
+			// 剪贴板截图没有可引用的原始路径；落到 app temp 目录后才可作为普通文件 token 交给 Agent 读取。
+			const directory = join(app.getPath("temp"), "pideck-input-images");
+			await mkdir(directory, { recursive: true });
+			const path = join(directory, `clipboard-${Date.now()}-${randomUUID()}.${extension}`);
+			await writeFile(path, data);
+			return path;
+		},
+	);
+
 	ipcMain.handle(ipcChannels.filesWriteContent, async (_event, path: string, content: string) => {
 		await writeFile(path, content, "utf8");
 		void appLogger.info("file", "File written", { path, bytes: Buffer.byteLength(content, "utf8") });
