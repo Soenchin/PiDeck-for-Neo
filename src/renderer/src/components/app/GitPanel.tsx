@@ -1,3 +1,4 @@
+import { Cloud, GitBranch, History } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type {
 	GitCommitFile,
@@ -65,6 +66,8 @@ function gitStatusLabel(status?: string): string {
 export function GitPanel(props: GitPanelProps) {
 	const [tab, setTab] = useState<GitPanelTab>("working-tree");
 	const [expandedWorkingTree, setExpandedWorkingTree] = useState(false);
+	const [expandedCommits, setExpandedCommits] = useState(false);
+	const [expandedRemoteCommits, setExpandedRemoteCommits] = useState(false);
 	const [commits, setCommits] = useState<GitCommitSummary[]>([]);
 	const [commitsLoading, setCommitsLoading] = useState(false);
 	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(
@@ -249,6 +252,17 @@ export function GitPanel(props: GitPanelProps) {
 			);
 		});
 
+	const visibleCommits = expandedCommits
+		? commits
+		: commits.slice(0, PREVIEW_LIMIT);
+	const visibleRemoteCommits = expandedRemoteCommits
+		? remoteCommits
+		: remoteCommits.slice(0, PREVIEW_LIMIT);
+	const hiddenCommitsCount = Math.max(0, commits.length - visibleCommits.length);
+	const hiddenRemoteCommitsCount = Math.max(
+		0,
+		remoteCommits.length - visibleRemoteCommits.length,
+	);
 	const latestWorkingTree = [...props.workingTreeFiles].reverse();
 	const visibleWorkingTree = expandedWorkingTree
 		? latestWorkingTree
@@ -270,7 +284,8 @@ export function GitPanel(props: GitPanelProps) {
 					className={`git-tab${tab === "working-tree" ? " active" : ""}`}
 					onClick={() => setTab("working-tree")}
 				>
-					{t("drawer.gitTabWorkingTree")}
+					<GitBranch size={13} strokeWidth={2} />
+					<span>{t("drawer.gitTabWorkingTree")}</span>
 				</button>
 				<button
 					type="button"
@@ -279,7 +294,8 @@ export function GitPanel(props: GitPanelProps) {
 					className={`git-tab${tab === "commits" ? " active" : ""}`}
 					onClick={() => setTab("commits")}
 				>
-					{t("drawer.gitTabCommits")}
+					<History size={13} strokeWidth={2} />
+					<span>{t("drawer.gitTabCommits")}</span>
 				</button>
 				<button
 					type="button"
@@ -288,7 +304,8 @@ export function GitPanel(props: GitPanelProps) {
 					className={`git-tab${tab === "remote" ? " active" : ""}`}
 					onClick={() => setTab("remote")}
 				>
-					{t("drawer.gitTabRemote")}
+					<Cloud size={13} strokeWidth={2} />
+					<span>{t("drawer.gitTabRemote")}</span>
 				</button>
 			</div>
 
@@ -298,7 +315,6 @@ export function GitPanel(props: GitPanelProps) {
 				<>
 					<div className="modified-files-header">
 						<span>{t("drawer.gitChangedFiles")}</span>
-						<small>{t("drawer.gitChangedFilesDesc")}</small>
 					</div>
 					{latestWorkingTree.length === 0 ? (
 						<div className="git-clean-message">{t("drawer.gitChangesNone")}</div>
@@ -374,7 +390,20 @@ export function GitPanel(props: GitPanelProps) {
 					) : commits.length === 0 ? (
 						<div className="git-clean-message">{t("drawer.gitNoCommits")}</div>
 					) : (
-						renderCommitList(commits)
+						<>
+							{renderCommitList(visibleCommits)}
+							{commits.length > PREVIEW_LIMIT && (
+								<button
+									className="modified-files-toggle git-list-toggle"
+									type="button"
+									onClick={() => setExpandedCommits((current) => !current)}
+								>
+									{expandedCommits
+										? t("drawer.gitCollapse")
+										: t("drawer.gitExpand", { count: hiddenCommitsCount })}
+								</button>
+							)}
+						</>
 					)}
 				</div>
 			) : (
@@ -422,7 +451,24 @@ export function GitPanel(props: GitPanelProps) {
 										{t("drawer.gitNoRemoteCommits")}
 									</div>
 								) : (
-									renderCommitList(remoteCommits)
+									<>
+										{renderCommitList(visibleRemoteCommits)}
+										{remoteCommits.length > PREVIEW_LIMIT && (
+											<button
+												className="modified-files-toggle git-list-toggle"
+												type="button"
+												onClick={() =>
+														setExpandedRemoteCommits((current) => !current)
+													}
+											>
+												{expandedRemoteCommits
+													? t("drawer.gitCollapse")
+													: t("drawer.gitExpand", {
+															count: hiddenRemoteCommitsCount,
+														})}
+											</button>
+										)}
+									</>
 								)}
 							</div>
 							<button
