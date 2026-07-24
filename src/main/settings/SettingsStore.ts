@@ -56,6 +56,7 @@ const defaultSettings: AppSettings = {
   webServiceHost: "0.0.0.0",
   webServicePort: 8765,
   rpcTimeout: 600_000,
+  autoSessionTitles: {},
   linkOpenMode: "external",
   contentMaxWidth: 1400,
   maxEditorFileSizeMB: 5,

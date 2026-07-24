@@ -69,12 +69,22 @@ export class PiProcess extends EventEmitter {
     return this.diagnostics;
   }
 
-  start(sessionPath?: string, trustOverride?: "approve" | "no-approve") {
+  start(
+    sessionPath?: string,
+    trustOverride?: "approve" | "no-approve",
+    options?: { ephemeral?: boolean; model?: { provider: string; id: string } },
+  ) {
     if (this.proc) return this.rpc!;
 
     // 信任确认由桌面端 AgentManager.ensureProjectTrust 在启动 pi 前完成，不再静默 --approve。
     // pi 在 RPC 模式下 project_trust 事件 hasUI 恒为 false，故信任弹窗由桌面端自行处理。
     const args = ["--mode", "rpc"];
+    if (options?.ephemeral) {
+      // 自动标题生成不应留下第二条 pi session、加载项目提示词或触发任何用户扩展。
+      // 它是独立的一次性摘要任务，完成后由调用方立刻 stop()。
+      args.push("--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files");
+    }
+    if (options?.model) args.push("--provider", options.model.provider, "--model", options.model.id);
     if (sessionPath) args.push("--session", sessionPath);
     // 信任覆盖：用 --approve/--no-approve 覆盖 pi 的 trustStore 决策（本次生效，不落盘）。
     // trust-session 用 --approve 让 pi 本次加载项目资源；deny 用 --no-approve 以不信任模式启动。

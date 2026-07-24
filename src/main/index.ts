@@ -1461,6 +1461,7 @@ function registerIpc() {
 		ipcChannels.sessionsRename,
 		async (_event, filePath: string, newName: string) => {
 			await sessionScanner.rename(filePath, newName);
+			await agentManager.lockAutoTitleForSession(filePath, newName);
 			void appLogger.info("session", "Session renamed", { filePath, newName });
 		},
 	);

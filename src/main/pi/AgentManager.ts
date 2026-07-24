@@ -104,6 +104,16 @@ export class AgentManager {
 	private readonly userInitiatedStop = new Set<string>();
 	/** 已尝试过自动重连的 agent（防止无限循环），重连成功后清除 */
 	private readonly autoRestartAttempted = new Set<string>();
+	/** 自动标题生成使用独立的短生命周期 pi 进程；同一会话同时只允许一个，避免标题写入乱序。 */
+	private readonly autoTitleInFlight = new Set<string>();
+	/** 自动标题的防抖定时器；首轮与压缩事件在短时间内重叠时合并成一次。 */
+	private readonly autoTitleTimers = new Map<string, NodeJS.Timeout>();
+	/** 标题生成期间又发生了压缩时，记录一次补跑，确保最终标题基于最新会话阶段。 */
+	private readonly autoTitleRefreshQueued = new Set<string>();
+	/** 当前由 PiDeck 自动写入的标题；收到对应 session_info_changed 事件时不能误判为手动锁定。 */
+	private readonly autoTitleWrites = new Map<string, string>();
+	/** 手动锁在 settings 落盘前立即生效，阻止已在飞行中的自动任务把它反写为 unlocked。 */
+	private readonly autoTitleLockedSessions = new Set<string>();
 
 	/**
 	 * 待处理的 Extension UI 请求。key 为 agentId，value 为 Map<requestId, { method, title, options }>。
@@ -220,7 +230,6 @@ export class AgentManager {
 			options?.preserveMessagesAfter,
 		);
 		this.messages.set(agentId, nextMessages);
-		this.refreshAutoTitle(agentId);
 		this.scheduleMessageEmit(agentId, true);
 		return nextMessages;
 	}
@@ -572,6 +581,11 @@ export class AgentManager {
 				| undefined;
 			tab.sessionId = data?.sessionId;
 			tab.sessionPath = data?.sessionFile ?? input.sessionPath;
+			// 早于本功能的已命名历史会话没有 PiDeck 的自动标题状态，默认视为人工名称。
+			// 已记录 locked:false 的名称则明确是我们之前生成的，允许在下一次压缩时继续更新。
+			if (data?.sessionName && !this.getAutoTitleState(tab.sessionPath)) {
+				void this.lockAutoTitle(tab.sessionPath, data.sessionName);
+			}
 			tab.title =
 				input.title ||
 				data?.sessionName ||
@@ -740,6 +754,8 @@ export class AgentManager {
 			throw new Error(response.error ?? "Failed to rename session");
 		}
 
+		// 用户手动改名的优先级高于所有自动策略，且该锁要跨应用重启保留。
+		await this.lockAutoTitle(runtime.tab.sessionPath, trimmed);
 		runtime.tab.title = trimmed;
 		const state = await runtime.process.client
 			.request({ type: "get_state" }, 10_000)
@@ -1070,9 +1086,11 @@ export class AgentManager {
 			}
 			compactionCompleted = true;
 
-			// RPC response 表示 Pi 已完成 compaction；消息刷新放后台，不能让按钮继续等待
-			// get_messages/get_entries 的慢请求。下一次消息事件或后台加载会补齐时间线。
-			void this.loadMessages(agentId).catch(() => undefined);
+			// RPC response 表示 Pi 已完成 compaction；标题必须取压缩后的消息上下文，
+			// 因此等后台刷新结束再调度，仍不阻塞用户看到压缩已完成。
+			void this.loadMessages(agentId)
+				.catch(() => undefined)
+				.finally(() => this.scheduleAutoTitleRefresh(agentId, "compaction"));
 			void this.appLogger?.info("agent", "Compact completed successfully", {
 				agentId,
 				totalElapsedMs: Date.now() - startTime,
@@ -1097,6 +1115,7 @@ export class AgentManager {
 				await this.reattachProcess(agentId, runtime.tab.sessionPath);
 				compactionCompleted = true;
 				await this.loadMessages(agentId).catch(() => undefined);
+				this.scheduleAutoTitleRefresh(agentId, "compaction");
 				this.addMessage(agentId, "system", "会话压缩完成");
 				void this.appLogger?.info("agent", "Compact: reattach succeeded", {
 					agentId,
@@ -1230,6 +1249,9 @@ export class AgentManager {
 				| undefined;
 			runtime.tab.sessionId = data?.sessionId ?? runtime.tab.sessionId;
 			runtime.tab.sessionPath = data?.sessionFile ?? sessionPath;
+			if (data?.sessionName && !this.getAutoTitleState(runtime.tab.sessionPath)) {
+				void this.lockAutoTitle(runtime.tab.sessionPath, data.sessionName);
+			}
 			runtime.tab.title = data?.sessionName ?? runtime.tab.title;
 			runtime.tab.status = "idle";
 			// 进程退出型压缩可能来不及发 compaction_end；重连成功即表示 Pi 已可继续接收消息。
@@ -2210,9 +2232,18 @@ export class AgentManager {
 				typeof typed.name === "string"
 					? typed.name.replace(/\s+/g, " ").trim()
 					: "";
-			if (name && name !== runtime.tab.title) {
-				runtime.tab.title = name;
-				this.emitState();
+			if (name) {
+				const automatedName = this.autoTitleWrites.get(agentId);
+				if (automatedName === name) {
+					this.autoTitleWrites.delete(agentId);
+				} else {
+					// 来自用户、pi 命令或扩展的名称都应被尊重，不能在下次压缩时被桌面端覆盖。
+					void this.lockAutoTitle(runtime.tab.sessionPath, name);
+				}
+				if (name !== runtime.tab.title) {
+					runtime.tab.title = name;
+					this.emitState();
+				}
 			}
 		}
 
@@ -2269,8 +2300,13 @@ export class AgentManager {
 			const isManualCompaction = typed.reason === "manual";
 			if (runtime) {
 				// 自动 compaction 没有对应的手动 compact() 收口，因此需要在事件结束后刷新消息；
+				// 刷新完成后才根据压缩后的当前上下文生成标题。
 				// 手动 compaction 由 compact() 的后台刷新统一处理，避免重复发两个慢 RPC。
-				if (!isManualCompaction) void this.loadMessages(agentId).catch(() => undefined);
+				if (!isManualCompaction) {
+					void this.loadMessages(agentId)
+						.catch(() => undefined)
+						.finally(() => this.scheduleAutoTitleRefresh(agentId, "compaction"));
+				}
 				if (!isManualCompaction && runtime.tab.status !== "error") {
 					// 自动压缩结束后可能还有 overflow retry 或 queued follow-up；
 					// 手动压缩则由 compact() finally 统一收口到 idle，不能依赖 agent_settled。
@@ -2386,6 +2422,7 @@ export class AgentManager {
 				const messages = this.messages.get(agentId) ?? [];
 				const lastMessage = messages[messages.length - 1];
 				if (lastMessage?.role === "assistant") {
+					this.scheduleAutoTitleRefresh(agentId, "first-response");
 					this.notifySessionEnd(runtime.tab.title);
 				}
 			}
@@ -2405,6 +2442,8 @@ export class AgentManager {
 		) {
 			this.upsertAssistantMessage(agentId, typed.message);
 			this.activeAssistantMessageIds.delete(agentId);
+			// 首轮标题依赖完整回答而非流式片段；调度到后台，不阻塞用户看到回答。
+			this.scheduleAutoTitleRefresh(agentId, "first-response");
 			// message_end 是本轮回答的最终状态，立即 flush 确保完整消息及时可见
 			this.flushMessageEmit(agentId);
 		}
@@ -3056,45 +3095,185 @@ export class AgentManager {
 			...(images && images.length > 0 ? { images } : {}),
 		});
 		this.messages.set(agentId, list);
-		if (role === "user" || role === "assistant") this.refreshAutoTitle(agentId);
 		this.scheduleMessageEmit(agentId, true);
 	}
 
-	private refreshAutoTitle(agentId: string) {
+	/** 历史会话从会话管理器改名时也会走这里，保证锁定规则与当前 Agent 一致。 */
+	async lockAutoTitleForSession(sessionPath: string, title: string) {
+		await this.lockAutoTitle(sessionPath, title);
+	}
+
+	private async lockAutoTitle(sessionPath: string | undefined, title: string) {
+		const key = this.normalizeSessionPathForCompare(sessionPath);
+		if (!key) return;
+		this.autoTitleLockedSessions.add(key);
+		const titles = this.settingsStore.get().autoSessionTitles ?? {};
+		await this.settingsStore.update({
+			autoSessionTitles: {
+				...titles,
+				[key]: { title, locked: true },
+			},
+		});
+	}
+
+	private getAutoTitleState(sessionPath: string | undefined) {
+		const key = this.normalizeSessionPathForCompare(sessionPath);
+		return key ? this.settingsStore.get().autoSessionTitles?.[key] : undefined;
+	}
+
+	private isAutoTitleLocked(sessionPath: string | undefined) {
+		const key = this.normalizeSessionPathForCompare(sessionPath);
+		return Boolean(key && (this.autoTitleLockedSessions.has(key) || this.getAutoTitleState(sessionPath)?.locked));
+	}
+
+	private scheduleAutoTitleRefresh(agentId: string, reason: "first-response" | "compaction") {
 		const runtime = this.agents.get(agentId);
-		if (!runtime) return false;
-		const project = this.getProject(runtime.tab.projectId);
-		if (!project) return false;
-		if (!this.isDefaultAgentTitle(runtime.tab.title, project)) return false;
-		const nextTitle = this.inferTitleFromMessages(this.messages.get(agentId) ?? []);
-		if (!nextTitle || nextTitle === runtime.tab.title) return false;
-		// Agent 列表标题应和历史会话列表的“摘要名”一致；
-		// 只覆盖默认标题，避免打开/重命名过的历史会话名称被第一条消息反向改掉。
-		runtime.tab.title = nextTitle;
-		this.emitState();
-		return true;
+		if (!runtime || !runtime.tab.sessionPath) return;
+		const titleState = this.getAutoTitleState(runtime.tab.sessionPath);
+		if (this.isAutoTitleLocked(runtime.tab.sessionPath)) return;
+
+		const messages = this.messages.get(agentId) ?? [];
+		const hasAssistantReply = messages.some((message) => message.role === "assistant");
+		// 首轮只为无名称的新会话命名；已有会话只在 compaction 时才可能更新。
+		if (reason === "first-response" && (titleState || !hasAssistantReply)) return;
+
+		if (this.autoTitleInFlight.has(agentId)) {
+			this.autoTitleRefreshQueued.add(agentId);
+			return;
+		}
+		if (this.autoTitleTimers.has(agentId)) return;
+
+		const timer = setTimeout(() => {
+			this.autoTitleTimers.delete(agentId);
+			void this.generateAutoTitle(agentId, reason);
+		}, reason === "compaction" ? 600 : 0);
+		timer.unref?.();
+		this.autoTitleTimers.set(agentId, timer);
 	}
 
-	private isDefaultAgentTitle(title: string, project: Project) {
-		return (
-			title === `${project.name} agent` ||
-			title === `${project.name} 历史会话` ||
-			title === "历史会话"
-		);
+	private async generateAutoTitle(agentId: string, reason: "first-response" | "compaction") {
+		const runtime = this.agents.get(agentId);
+		if (!runtime || this.autoTitleInFlight.has(agentId)) return;
+		if (this.isAutoTitleLocked(runtime.tab.sessionPath)) return;
+		const source = this.buildAutoTitleSource(this.messages.get(agentId) ?? []);
+		if (!source) return;
+
+		this.autoTitleInFlight.add(agentId);
+		try {
+			const stateResponse = await runtime.process.client.request({ type: "get_state" }, 5_000);
+			const model = (stateResponse.data as { model?: { provider?: string; id?: string } } | undefined)?.model;
+			const titleProcess = new PiProcess(runtime.tab.cwd, this.settingsStore.get());
+			const settled = this.waitForAutoTitleCompletion(titleProcess, 30_000);
+			const client = titleProcess.start(undefined, "no-approve", {
+				ephemeral: true,
+				...(model?.provider && model.id ? { model: { provider: model.provider, id: model.id } } : {}),
+			});
+			try {
+				const response = await client.request({
+					type: "prompt",
+					message: `为下面的对话生成一个准确、可扫描的会话标题。只输出标题本身：不要引号、前缀、解释或 Markdown；必须使用中文；最多十五个汉字；概括当前主要任务而非泛泛的“聊天”或“问题”。\n\n<conversation>\n${source}\n</conversation>`,
+				}, 15_000);
+				if (!response.success) return;
+				await settled;
+				const titleResponse = await client.request({ type: "get_last_assistant_text" }, 5_000);
+				const rawTitle = (titleResponse.data as { text?: unknown } | undefined)?.text;
+				const title = this.sanitizeAutoTitle(typeof rawTitle === "string" ? rawTitle : "");
+				if (!title || this.isAutoTitleLocked(runtime.tab.sessionPath)) return;
+
+				// 标题生成器与真正会话隔离；最终名称仍必须经当前会话的官方 RPC 写入，
+				// 以获得 pi 原生 session_info 元数据和跨端一致的历史列表名称。
+				this.autoTitleWrites.set(agentId, title);
+				const saveResponse = await runtime.process.client.request(
+					{ type: "set_session_name", name: title },
+					15_000,
+				);
+				if (!saveResponse.success) {
+					this.autoTitleWrites.delete(agentId);
+					return;
+				}
+				const key = this.normalizeSessionPathForCompare(runtime.tab.sessionPath);
+				if (key && !this.isAutoTitleLocked(runtime.tab.sessionPath)) {
+					const titles = this.settingsStore.get().autoSessionTitles ?? {};
+					await this.settingsStore.update({
+						autoSessionTitles: { ...titles, [key]: { title, locked: false } },
+					});
+				}
+				if (this.isAutoTitleLocked(runtime.tab.sessionPath)) return;
+				runtime.tab.title = title;
+				this.emitState();
+				void this.appLogger?.info("agent", "Automatic session title generated", { agentId, reason, title });
+			} finally {
+				titleProcess.stop();
+			}
+		} catch (error) {
+			// 自动命名绝不能影响用户会话；仅记录诊断，下一次压缩仍可重试。
+			void this.appLogger?.warn("agent", "Automatic session title generation skipped", {
+				agentId,
+				reason,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		} finally {
+			this.autoTitleInFlight.delete(agentId);
+			if (this.autoTitleRefreshQueued.delete(agentId)) {
+				this.scheduleAutoTitleRefresh(agentId, "compaction");
+			}
+		}
 	}
 
-	private inferTitleFromMessages(messages: ChatMessage[]) {
-		const firstUserText = messages.find((message) => message.role === "user")?.text;
-		const firstAssistantText = messages.find(
-			(message) => message.role === "assistant",
-		)?.text;
-		return this.cleanTitle(firstUserText) || this.cleanTitle(firstAssistantText);
+	private buildAutoTitleSource(messages: ChatMessage[]) {
+		const relevant = messages
+			.filter(
+				(message) =>
+					message.role === "user" ||
+					message.role === "assistant" ||
+					(message.role === "system" && message.meta?.type === "compaction"),
+			)
+			.slice(-8)
+			.map((message) => {
+				const speaker =
+					message.role === "user"
+						? "用户"
+						: message.role === "assistant"
+							? "助手"
+							: "会话压缩摘要";
+				return `${speaker}：${message.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, "").trim()}`;
+			})
+			.filter((line) => line.length > 3)
+			.join("\n");
+		return relevant.slice(0, 8_000);
 	}
 
-	private cleanTitle(value?: string) {
-		const text = value?.replace(/\s+/g, " ").trim();
-		if (!text || /^untitled$/i.test(text)) return undefined;
-		return text.length > 32 ? `${text.slice(0, 32)}…` : text;
+	private sanitizeAutoTitle(value: string) {
+		const title = value
+			.split(/\r?\n/, 1)[0]
+			.replace(/^(?:标题|会话标题)\s*[:：]\s*/i, "")
+			.replace(/[“”"'`*_#]/g, "")
+			.replace(/\s+/g, " ")
+			.trim();
+		if (!title || /^(?:无|未知|未命名|untitled)$/i.test(title)) return undefined;
+		return Array.from(title).slice(0, 15).join("").trim() || undefined;
+	}
+
+	private waitForAutoTitleCompletion(process: PiProcess, timeoutMs: number) {
+		return new Promise<void>((resolve, reject) => {
+			const timer = setTimeout(() => finish(new Error("Automatic title generation timed out")), timeoutMs);
+			const onEvent = (event: unknown) => {
+				if ((event as { type?: string } | undefined)?.type === "agent_settled") finish();
+			};
+			const onError = (error: Error) => finish(error);
+			const onExit = () => finish(new Error("Automatic title process exited"));
+			const finish = (error?: Error) => {
+				clearTimeout(timer);
+				process.off("event", onEvent);
+				process.off("error", onError);
+				process.off("exit", onExit);
+				if (error) reject(error);
+				else resolve();
+			};
+			process.on("event", onEvent);
+			process.on("error", onError);
+			process.on("exit", onExit);
+		});
 	}
 
 	private addDetailedErrorMessage(agentId: string, errorMessage: string) {

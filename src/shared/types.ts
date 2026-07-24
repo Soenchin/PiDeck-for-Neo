@@ -286,6 +286,13 @@ export type AppFontSizeMode = "compact" | "default" | "medium" | "large" | "xlar
 export type AppFontBaseMode = "system" | "sans" | "serif" | "custom";
 export type AppFontMonoMode = "commit-mono" | "system-mono" | "custom";
 
+export type AutoSessionTitleState = {
+	/** 自动生成过的最新标题；locked 为 true 时它仅作为手动锁定标记的历史值保留。 */
+	title?: string;
+	/** 用户在 PiDeck 中手动改名后永久锁定，自动命名不再覆盖该会话。 */
+	locked: boolean;
+};
+
 export type AppSettings = {
 	useNativeTitleBar: boolean;
 	showNativeMenu: boolean;
@@ -337,6 +344,8 @@ export type AppSettings = {
 	installationType?: "portable" | "installed";
 	/** RPC 调用超时时间（毫秒），默认 600000（10 分钟），用于长时间运行的命令 */
 	rpcTimeout: number;
+	/** PiDeck 管理的会话自动标题状态，key 为规范化后的 session 文件路径。 */
+	autoSessionTitles?: Record<string, AutoSessionTitleState>;
 	/** 外部链接打开方式：external 使用系统默认浏览器，internal 使用应用内独立窗口 */
 	linkOpenMode: LinkOpenMode;
 	/** 内容区最大宽度（px），0 表示不限制（填满 chat-pane）。用于限制消息行宽，左右留白。 */
