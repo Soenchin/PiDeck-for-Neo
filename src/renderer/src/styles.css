@@ -13,6 +13,13 @@
   font-display: swap;
 }
 @font-face {
+  font-family: "NeoNischMontserrat";
+  src: url("./assets/fonts/Montserrat-SemiBold.otf") format("opentype");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
   font-family: "PiDeckCommitMono";
   src: url("./assets/fonts/CommitMono-400-Regular.otf") format("opentype");
   font-style: normal;
@@ -118,20 +125,9 @@
   --image-preview-control-bg: rgba(255, 255, 255, 0.12);
   --image-preview-control-bg-hover: rgba(255, 255, 255, 0.22);
   --image-thumbnail-remove-bg: rgba(0, 0, 0, 0.6);
-  /* NeoNisch 字标：与头像绿边和径向环星背景同一套叶绿-青绿-翡翠能量色。 */
-  --brand-wordmark-gradient: linear-gradient(
-    120deg,
-    #b8ffd0 0%,
-    #67e7a0 44%,
-    #1cb67a 72%,
-    #08704e 100%
-  );
-  --brand-wordmark-underline: linear-gradient(
-    90deg,
-    #9cf5be 0%,
-    rgba(56, 205, 132, 0.46) 58%,
-    transparent 100%
-  );
+  /* NeoNisch 字标使用和几何 Logo 同语言的 Montserrat；绿色由图标承担，文字保持浅灰绿。 */
+  --font-family-wordmark: "NeoNischMontserrat", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --color-wordmark: #cce8d9;
   --logo-boot-gradient: linear-gradient(
     145deg,
     var(--color-logo-green),
@@ -1156,8 +1152,8 @@ body.is-resizing .wechat-shell {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  /* 衬线字标的视觉重心偏高，向下微调以对齐应用标的几何中心。 */
-  transform: translateY(2px);
+  /* Montserrat 的几何字面与 Logo 中心对齐，不再使用衬线字体的下移补偿。 */
+  transform: translateY(0);
 }
 /* 侧栏收起时 --list-width 为 0，品牌区仍会溢出 logo，需彻底收起避免压住会话标题。 */
 .custom-titlebar-enabled.list-collapsed .titlebar-brand {
@@ -1353,27 +1349,16 @@ body.is-resizing .wechat-shell {
 }
 .brand-wordmark {
   display: inline-block;
-  position: relative;
-  font-family: var(--font-family-brand);
-  font-size: 22px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-wordmark);
+  font-size: 18px;
   line-height: 1;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: transparent;
-  background: var(--brand-wordmark-gradient);
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-.brand-wordmark::after {
-  content: "";
-  position: absolute;
-  left: 1px;
-  right: 1px;
-  bottom: -7px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--brand-wordmark-underline);
-  opacity: 0.56;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: var(--color-wordmark);
 }
 .homepage-icon:hover {
   background: var(--color-bg-hover);
@@ -6474,13 +6459,10 @@ body.ask-dialog-open .ask-question-card.pending {
 }
 .neo-splash-copy h1 {
   margin: 0;
-  color: transparent;
-  background: var(--brand-wordmark-gradient);
-  background-clip: text;
-  -webkit-background-clip: text;
-  font-family: var(--font-family-brand);
+  color: var(--color-wordmark);
+  font-family: var(--font-family-wordmark);
   font-size: clamp(48px, 5.2vw, 78px);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 0.98;
   letter-spacing: -0.04em;
 }
