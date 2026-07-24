@@ -9557,6 +9557,18 @@ body.is-composer-resizing .composer-resize-handle::after {
   );
 }
 
+/* 后台会话已完成但尚未点开查看时，标题右侧的未读绿点。 */
+.agent-unread-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--color-logo-green);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-logo-green) 22%, transparent),
+    0 0 10px color-mix(in srgb, var(--color-logo-green) 45%, transparent);
+}
+
 .agent-status-indicator.status-starting {
   color: var(--color-warning);
   background: color-mix(

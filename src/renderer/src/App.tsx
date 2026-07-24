@@ -732,6 +732,10 @@ export function App() {
   // 会话区不再维护独立的“修改文件摘要”卡片；diff 入口贴在 edit/write 工具调用处，
   // 避免会话输入框上方摘要与 Git 工作区状态/历史会话恢复互相干扰。
   const agentStatusByAgentRef = useRef<Record<string, AgentTab["status"]>>({});
+  /** 所有 agent 的上一次状态，用于检测后台会话 running→idle 并打未读标记。 */
+  const allAgentStatusRef = useRef<Record<string, AgentTab["status"]>>({});
+  /** 已完成但用户尚未点开查看的 agent；侧栏显示绿点，点开后清除。 */
+  const [unreadAgentIds, setUnreadAgentIds] = useState<Set<string>>(() => new Set());
   /** RPC 日志,用于调试 */
   const [rpcLogs, setRpcLogs] = useState<
     Array<{
@@ -1908,6 +1912,23 @@ export function App() {
       setMessagesByAgent((current) =>
         migrateAgentRecord(current, pendingReplacementById, draftIds),
       );
+      // 未读集合跟随 pending→真实 agent 的 id 迁移，并丢掉已关闭 agent。
+      if (pendingReplacementById.size > 0 || draftIds.size > 0) {
+        setUnreadAgentIds((current) => {
+          let changed = false;
+          const next = new Set<string>();
+          for (const agentId of current) {
+            const mapped = pendingReplacementById.get(agentId) ?? agentId;
+            if (!draftIds.has(mapped)) {
+              changed = true;
+              continue;
+            }
+            if (mapped !== agentId) changed = true;
+            next.add(mapped);
+          }
+          return changed ? next : current;
+        });
+      }
     });
     // 优化:历史会话加载时消息更新频繁,只在消息真正变化时更新 state,避免不必要的重渲染导致输入卡顿
     const offMessages = api.agents.onMessages((payload) =>
@@ -2464,6 +2485,60 @@ export function App() {
     return () => document.removeEventListener("mousedown", handler);
   }, [sessionActionsOpen]);
 
+  // 点开某个会话即视为已读；当前前台会话不保留未读点。
+  useEffect(() => {
+    if (!activeAgentId) return;
+    setUnreadAgentIds((current) => {
+      if (!current.has(activeAgentId)) return current;
+      const next = new Set(current);
+      next.delete(activeAgentId);
+      return next;
+    });
+  }, [activeAgentId]);
+
+  // 后台 agent 从 running/starting 回到 idle/error 时打未读标记，
+  // 方便多会话同时跑完后分辨「哪个还没看过」。
+  useEffect(() => {
+    const currentActiveId = activeAgentIdRef.current;
+    const newlyUnread: string[] = [];
+    const liveIds = new Set(displayAgents.map((agent) => agent.id));
+
+    for (const agent of displayAgents) {
+      const previousStatus = allAgentStatusRef.current[agent.id];
+      const finishedNow =
+        (agent.status === "idle" || agent.status === "error") &&
+        (previousStatus === "running" || previousStatus === "starting");
+      if (finishedNow && agent.id !== currentActiveId) {
+        newlyUnread.push(agent.id);
+      }
+      allAgentStatusRef.current[agent.id] = agent.status;
+    }
+
+    // 清掉已关闭 agent 的状态缓存，避免 map 无限增长。
+    for (const agentId of Object.keys(allAgentStatusRef.current)) {
+      if (!liveIds.has(agentId)) delete allAgentStatusRef.current[agentId];
+    }
+
+    if (newlyUnread.length === 0) return;
+    setUnreadAgentIds((current) => {
+      let changed = false;
+      const next = new Set(current);
+      for (const agentId of newlyUnread) {
+        if (!next.has(agentId)) {
+          next.add(agentId);
+          changed = true;
+        }
+      }
+      // 顺手丢掉已关闭 agent 的未读标记。
+      for (const agentId of next) {
+        if (!liveIds.has(agentId)) {
+          next.delete(agentId);
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [displayAgents]);
 
   useEffect(() => {
     for (const agent of displayAgents) {
@@ -5440,6 +5515,7 @@ ${goalTextRef.current}
                     if (child.type === "agent") {
                       const agent = child.agent;
                       const isActiveAgent = agent.id === activeAgentId;
+                      const hasUnread = unreadAgentIds.has(agent.id);
                       return (
                         <Fragment key={child.key}>
                         <button
@@ -5480,6 +5556,13 @@ ${goalTextRef.current}
                                 <span className={`session-source-badge ${child.source}`}>
                                   {t(`sessionSource.${child.source}` as any)}
                                 </span>
+                              )}
+                              {hasUnread && (
+                                <span
+                                  className="agent-unread-dot"
+                                  title={t("app.unreadMessages")}
+                                  aria-label={t("app.unreadMessages")}
+                                />
                               )}
                             </div>
                           </div>
@@ -5661,7 +5744,9 @@ ${goalTextRef.current}
                               </span>
                             )}
                           </button>
-                          {childAgents.map((agent) => (
+                          {childAgents.map((agent) => {
+                            const hasUnread = unreadAgentIds.has(agent.id);
+                            return (
                             <button
                               key={agent.id}
                               className={agent.id === activeAgentId ? "conversation agent-row worktree-nested-row active" : "conversation agent-row worktree-nested-row"}
@@ -5692,10 +5777,18 @@ ${goalTextRef.current}
                                     </span>
                                   )}
                                   <strong>{agent.title}</strong>
+                                  {hasUnread && (
+                                    <span
+                                      className="agent-unread-dot"
+                                      title={t("app.unreadMessages")}
+                                      aria-label={t("app.unreadMessages")}
+                                    />
+                                  )}
                                 </div>
                               </div>
                             </button>
-                          ))}
+                            );
+                          })}
                           {visibleSessions.map((session) => (
                             <button
                               key={session.filePath}
