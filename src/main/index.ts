@@ -1638,6 +1638,75 @@ function registerIpc() {
 		},
 	);
 
+	ipcMain.handle(
+		ipcChannels.gitCommits,
+		async (_event, projectId: string, maxCount?: number) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.getCommits(project.path, maxCount);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommitFiles,
+		async (_event, projectId: string, hash: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.getCommitFiles(project.path, hash);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitCommitFileContent,
+		async (
+			_event,
+			projectId: string,
+			hash: string,
+			filePath: string,
+			side: "old" | "new",
+		) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.getCommitFileContent(project.path, hash, filePath, side);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitRemoteSummary,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.getRemoteSummary(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitRemoteCommits,
+		async (_event, projectId: string, maxCount?: number) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.getRemoteCommits(project.path, maxCount);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitFetch,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.fetch(project.path);
+		},
+	);
+
+	ipcMain.handle(
+		ipcChannels.gitIsRepo,
+		async (_event, projectId: string) => {
+			const project = projectStore.get(projectId);
+			if (!project) throw new Error(`Project not found: ${projectId}`);
+			return gitService.isGitRepo(project.path);
+		},
+	);
+
 	ipcMain.handle(ipcChannels.piCheck, async () => {
 		// 用户手动指定的路径优先于自动检测
 		const settings = settingsStore.get();

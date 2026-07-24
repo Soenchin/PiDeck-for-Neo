@@ -44,6 +44,9 @@ import type {
 	FileTreeNode,
 	ForkMessage,
 	GitBranchInfo,
+	GitCommitSummary,
+	GitCommitFile,
+	GitRemoteSummary,
 	ImageContent,
 	WorktreeEntry,
 	PiCliUpdateResult,
@@ -278,6 +281,59 @@ const api = {
 				ipcChannels.gitWorktreeRemove,
 				projectId,
 				worktreePath,
+			) as Promise<boolean>,
+		// 获取最近 commit 列表
+		commits: (projectId: string, maxCount?: number) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitCommits,
+				projectId,
+				maxCount,
+			) as Promise<GitCommitSummary[]>,
+		// 获取指定 commit 变更的文件列表
+		commitFiles: (projectId: string, hash: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitCommitFiles,
+				projectId,
+				hash,
+			) as Promise<GitCommitFile[]>,
+		// 获取指定 commit 中文件的 old/new 版本内容
+		commitFileContent: (
+			projectId: string,
+			hash: string,
+			filePath: string,
+			side: "old" | "new",
+		) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitCommitFileContent,
+				projectId,
+				hash,
+				filePath,
+				side,
+			) as Promise<string>,
+		// 获取远端跟踪分支的 ahead/behind 概要
+		remoteSummary: (projectId: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitRemoteSummary,
+				projectId,
+			) as Promise<GitRemoteSummary | null>,
+		// 获取远端最新 commit 列表（本地 remote-tracking refs）
+		remoteCommits: (projectId: string, maxCount?: number) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitRemoteCommits,
+				projectId,
+				maxCount,
+			) as Promise<GitCommitSummary[]>,
+		// 手动触发 git fetch --prune
+		fetch: (projectId: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitFetch,
+				projectId,
+			) as Promise<boolean>,
+		// 判断项目目录是否位于 git 仓库内
+		isRepo: (projectId: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.gitIsRepo,
+				projectId,
 			) as Promise<boolean>,
 	},
 	pi: {

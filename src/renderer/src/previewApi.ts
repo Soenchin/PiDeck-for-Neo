@@ -330,6 +330,13 @@ export function createPreviewApi(): PiDesktopApi {
 				branch: branchName,
 			}),
 			worktreeRemove: async () => true,
+			commits: async () => [],
+			commitFiles: async () => [],
+			commitFileContent: async () => "",
+			remoteSummary: async () => null,
+			remoteCommits: async () => [],
+			fetch: async () => false,
+			isRepo: async () => true,
 		},
 		logs: {
 			list: async () => [],

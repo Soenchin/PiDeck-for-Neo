@@ -796,6 +796,42 @@ export type GitChangedFile = {
 	status: GitFileStatus;
 };
 
+/** git commit 摘要信息 */
+export type GitCommitSummary = {
+	hash: string;
+	shortHash: string;
+	author: string;
+	date: string;
+	message: string;
+};
+
+/** git commit 中包含的文件变更 */
+export type GitCommitFile = {
+	/** 绝对路径，供 UI 显示和 FileDiffViewer 使用 */
+	path: string;
+	/** 仓库根相对路径，供 git show <hash>:relpath 使用 */
+	relativePath: string;
+	status: GitFileStatus;
+	/** rename/copy 时的旧相对路径，供 git show <hash>^:old 使用 */
+	oldPath?: string;
+};
+
+/** 远端跟踪分支概要 */
+export type GitRemoteSummary = {
+	/** 远端名称，如 origin */
+	remote: string;
+	/** 远端跟踪分支名，如 origin/main */
+	trackingBranch: string;
+	/** 本地领先提交数 */
+	ahead: number;
+	/** 本地落后提交数 */
+	behind: number;
+	/** 远端最新 commit hash */
+	remoteHeadHash?: string;
+	/** 远端是否有未 fetch 的变更 */
+	hasUnfetchedChanges: boolean;
+};
+
 /** git worktree --porcelain 输出解析出的单条工作树信息 */
 export type WorktreeEntry = {
 	path: string;

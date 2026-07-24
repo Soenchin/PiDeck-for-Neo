@@ -114,6 +114,7 @@ import type {
 	SessionSummary,
 } from "../../../../shared/types";
 import { parseRichInputChips, type RichInputChip } from "./RichInput";
+import { GitPanel } from "./GitPanel";
 /** 复用 petdex 标准网格规格，在主设置面板里为宠物选择器渲染单格动画预览 */
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
 
@@ -4133,6 +4134,15 @@ export function DrawerContent(props: {
 	onDiffFile?: DiffFileHandler;
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
+	/** 当前项目 id，供 Git 区块按需拉取 commits/remote */
+	projectId?: string | null;
+	/** 打开历史 commit 中某个文件的 diff */
+	onDiffCommitFile?: (
+		hash: string,
+		filePath: string,
+		oldContent: string,
+		newContent: string,
+	) => void;
 }) {
 	const title =
 		props.panel === "files"
@@ -4180,6 +4190,8 @@ export function DrawerContent(props: {
 					onDiffFile={props.onDiffFile}
 					onOpenFile={props.onOpenFile}
 					onViewFile={props.onViewFile}
+					projectId={props.projectId}
+					onDiffCommitFile={props.onDiffCommitFile}
 				/>
 			)}
 			{props.panel === "sessions" && (
@@ -4197,9 +4209,6 @@ export function DrawerContent(props: {
 	);
 }
 
-const MODIFIED_FILES_PREVIEW_LIMIT = 5;
-const MODIFIED_FILES_EXPANDED_STORAGE_KEY = "pid:modified-files-expanded";
-
 function FilesPanel(props: {
 	files: FileTreeNode[];
 	/** Git 工作区中对比 HEAD 有变更的文件；会话卡片的修改摘要不使用该数据源。 */
@@ -4212,28 +4221,15 @@ function FilesPanel(props: {
 	onDiffFile?: DiffFileHandler;
 	onOpenFile?: (path: string) => void;
 	onViewFile?: (path: string) => void;
+	projectId?: string | null;
+	onDiffCommitFile?: (
+		hash: string,
+		filePath: string,
+		oldContent: string,
+		newContent: string,
+	) => void;
 }) {
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-	const [modifiedFilesExpanded, setModifiedFilesExpanded] = useState(() => {
-		if (typeof window === "undefined") return false;
-		return localStorage.getItem(MODIFIED_FILES_EXPANDED_STORAGE_KEY) === "true";
-	});
-	const handleToggleModifiedFiles = useCallback(() => {
-		setModifiedFilesExpanded((current) => {
-			const next = !current;
-			localStorage.setItem(MODIFIED_FILES_EXPANDED_STORAGE_KEY, String(next));
-			return next;
-		});
-	}, []);
-	// 后端按修改时间升序传入；抽屉顶部优先展示最新文件，避免文件多时用户看不到刚改的内容。
-	const latestModifiedFiles = [...props.modifiedFiles].reverse();
-	const visibleModifiedFiles = modifiedFilesExpanded
-		? latestModifiedFiles
-		: latestModifiedFiles.slice(0, MODIFIED_FILES_PREVIEW_LIMIT);
-	const hiddenModifiedFileCount = Math.max(
-		0,
-		latestModifiedFiles.length - visibleModifiedFiles.length,
-	);
 
 	const gitStatusMap = useMemo(() => {
 		const map = new Map<string, string>();
@@ -4257,70 +4253,26 @@ function FilesPanel(props: {
 					<button onClick={props.onRefreshFiles}>{t("common.refresh")}</button>
 				</div>
 			</div>
-			{props.modifiedFiles.length > 0 && (
-				<div className="modified-files-section">
-					<div className="modified-files-header">
-						<span>{t("drawer.gitChangedFiles")}</span>
-						<small>{t("drawer.gitChangedFilesDesc")}</small>
-					</div>
-					{visibleModifiedFiles.map((file) => {
-						const fileName = file.path.split(/[/\\]/).pop() ?? file.path;
-						const isRunning = file.status === "running";
-						// 构造最小的 FileTreeNode 以复用右键菜单,保持修改清单和文件树相同的打开/定位入口。
-						const fakeNode: FileTreeNode = {
+			{/* Git 区块始终显示：干净时也给提示；提交/远端按需拉取 */}
+			<GitPanel
+				projectId={props.projectId}
+				workingTreeFiles={props.modifiedFiles}
+				onDiffWorkingTreeFile={props.onDiffFile}
+				onDiffCommitFile={props.onDiffCommitFile}
+				onFileContextMenu={(path, x, y) => {
+					const fileName = path.split(/[/\\]/).pop() ?? path;
+					props.onFileContextMenu(
+						{
 							name: fileName,
-							path: file.path,
-							relativePath: file.path,
+							path,
+							relativePath: path,
 							type: "file",
-						};
-						return (
-							<div
-								key={file.path}
-								className={`modified-file-row${isRunning ? " running" : ""}`}
-								title={file.path}
-								onContextMenu={(e) => {
-									e.preventDefault();
-									props.onFileContextMenu(fakeNode, e.clientX, e.clientY);
-								}}
-								onClick={() => props.onDiffFile?.(file.path, file.originalContent, file.content)}
-							>
-								<span
-									className={`modified-file-icon${isRunning ? "" : " done"}`}
-								>
-									{file.toolName === "git"
-										? gitStatusIcon(file.status)
-										: isRunning
-											? "◌"
-											: "✓"}
-								</span>
-								<span className="modified-file-name">{fileName}</span>
-								{file.toolName === "git" && file.status !== "deleted" && (
-									<span className="modified-file-lines">{file.status === "added" ? "新" : "改"}</span>
-								)}
-								{file.toolName !== "git" && Boolean(file.changedLines) && (
-									<span className="modified-file-lines">
-										{t("drawer.changedLines", {
-											count: file.changedLines ?? 0,
-										})}
-									</span>
-								)}
-								<span className="modified-file-tool">{file.toolName}</span>
-							</div>
-						);
-					})}
-					{latestModifiedFiles.length > MODIFIED_FILES_PREVIEW_LIMIT && (
-						<button
-							className="modified-files-toggle"
-							type="button"
-							onClick={handleToggleModifiedFiles}
-						>
-							{modifiedFilesExpanded
-								? t("common.collapse")
-								: t("drawer.moreFiles", { count: hiddenModifiedFileCount })}
-						</button>
-					)}
-				</div>
-			)}
+						},
+						x,
+						y,
+					);
+				}}
+			/>
 			{props.files.map((node) => (
 				<FileNode
 					key={node.path}

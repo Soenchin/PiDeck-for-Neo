@@ -3068,6 +3068,20 @@ export function App() {
     openEditorTab(path, "diff", resolvedOriginal, resolvedModified);
   }
 
+  /** 打开历史 commit 中某个文件的 diff；内容来自 git show，不读当前工作区。 */
+  function diffCommitFile(
+    _hash: string,
+    filePath: string,
+    oldContent: string,
+    newContent: string,
+  ) {
+    setEditorMode("modal");
+    setDrawer(null);
+    // 使用真实路径，保证 Monaco 语言识别与文件名显示正常；
+    // 同文件不同 commit 会刷新已有 tab 内容，而不是再开一个虚拟路径 tab。
+    openEditorTab(filePath, "diff", oldContent, newContent);
+  }
+
   async function refreshSessionHistory(projectId = sessionsProjectId) {
     if (!projectId) return;
     setSessionHistoryLoading(true);
@@ -6620,6 +6634,8 @@ ${goalTextRef.current}
               onExportSession={exportHistorySession}
               onDeleteSession={deleteHistorySession}
               onDiffFile={diffFilePath}
+              onDiffCommitFile={diffCommitFile}
+              projectId={activeProjectId}
               onViewFile={viewFilePath}
               onOpenFile={openFilePath}
             />
