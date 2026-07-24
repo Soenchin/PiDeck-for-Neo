@@ -1231,39 +1231,34 @@ export class AgentManager {
 	}
 
 	/**
-	 * 读取 session 文件，提取最后一条 assistant 消息的缓存命中率。
-	 * 与 pi CLI footer 的 latestCacheHitRate 逻辑一致：
-	 * latestCacheHitRate = cacheRead / (input + cacheRead + cacheWrite) * 100
+	 * 兜底读取整个 session 文件，汇总所有 assistant usage 的缓存命中率。
+	 * 不使用最后一轮的高值，避免 UI 与中转站的会话累计统计产生明显偏差。
 	 */
-	private async getLatestCacheMessageHitRate(sessionPath: string): Promise<number | undefined> {
+	private async getCumulativeCacheMessageHitRate(sessionPath: string): Promise<number | undefined> {
 		try {
 			const raw = await readFile(sessionPath, "utf8");
-			const lines = raw.split(/\r?\n/);
-			// 从后往前遍历，找到最后一条 assistant 消息
-			for (let i = lines.length - 1; i >= 0; i--) {
-				const line = lines[i].trim();
-				if (!line) continue;
+			let input = 0;
+			let cacheRead = 0;
+			let cacheWrite = 0;
+			for (const line of raw.split(/\r?\n/)) {
+				if (!line.trim()) continue;
 				try {
 					const entry = JSON.parse(line) as Record<string, any>;
-					if (entry?.message?.role === "assistant" && entry.message?.usage) {
-						const usage = entry.message.usage;
-						const input = usage.input ?? 0;
-						const cacheRead = usage.cacheRead ?? 0;
-						const cacheWrite = usage.cacheWrite ?? 0;
-						const promptTokens = input + cacheRead + cacheWrite;
-						if (promptTokens > 0) {
-							return (cacheRead / promptTokens) * 100;
-						}
-						return undefined;
-					}
+					if (entry?.message?.role !== "assistant" || !entry.message?.usage) continue;
+					const usage = entry.message.usage;
+					input += Number(usage.input) || 0;
+					cacheRead += Number(usage.cacheRead) || 0;
+					cacheWrite += Number(usage.cacheWrite) || 0;
 				} catch {
-					// 单行解析失败忽略，继续往前找
+					// 单行解析失败忽略，其余历史仍可参与累计。
 				}
 			}
+			const promptTokens = input + cacheRead + cacheWrite;
+			return promptTokens > 0 ? (cacheRead / promptTokens) * 100 : undefined;
 		} catch {
 			// 文件不存在或无法读取，返回 undefined
+			return undefined;
 		}
-		return undefined;
 	}
 
 	async getRuntimeState(agentId: string): Promise<AgentRuntimeState> {
@@ -1308,22 +1303,19 @@ export class AgentManager {
 			stats?.cacheWrite,
 			stats?.usage?.cacheWrite,
 		);
-		const directCacheHitPercent = this.pickNumber(
-			tokens?.cacheHitPercent,
-			tokens?.cacheHitRate != null ? tokens.cacheHitRate * 100 : undefined,
-			stats?.cacheHitPercent,
-			stats?.cacheHitRate != null ? stats.cacheHitRate * 100 : undefined,
-		);
-	/**
-	 * 使用最新一条 assistant 消息的缓存命中率，与 pi CLI footer 保持一致。
-	 * pi 的 get_session_stats RPC 不直接返回 cacheHitPercent，需读取 session 文件。
-	 */
-		const computedCacheHitPercent = runtime.tab.sessionPath
-			? await this.getLatestCacheMessageHitRate(runtime.tab.sessionPath)
-			: undefined;
-		const cacheHitPercent = this.clampPercent(
-			directCacheHitPercent ?? computedCacheHitPercent,
-		);
+		// get_session_stats.tokens 是 pi 对整个 session 的累计值；只有旧版/异常 RPC
+		// 缺少累计 token 时，才回读 JSONL 做同口径的全量汇总。
+		const cumulativePromptTokens =
+			inputTokens != null && cacheRead != null && cacheWrite != null
+				? inputTokens + cacheRead + cacheWrite
+				: 0;
+		const computedCacheHitPercent =
+			cumulativePromptTokens > 0
+				? (cacheRead! / cumulativePromptTokens) * 100
+				: runtime.tab.sessionPath
+					? await this.getCumulativeCacheMessageHitRate(runtime.tab.sessionPath)
+					: undefined;
+		const cacheHitPercent = this.clampPercent(computedCacheHitPercent);
 		return {
 			modelName: model?.name ?? model?.id,
 			provider: model?.provider,
