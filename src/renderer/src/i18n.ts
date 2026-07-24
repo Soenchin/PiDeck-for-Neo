@@ -243,6 +243,7 @@ const zhCN = {
   "app.shellProxyDisabled": "pi agent 代理已关闭。",
   "app.shellProxySaved": "pi agent 代理设置已保存；新建或重启 agent 后生效。",
   "app.stop": "停止",
+  "app.stopGeneration": "停止生成",
   "app.statusIdle": "摸鱼中",
   "app.statusRunning": "正在思考",
   "app.statusStarting": "启动中",
@@ -1686,6 +1687,7 @@ const enUS: Record<TranslationKey, string> = {
   "app.shellProxySaved":
     "pi agent proxy saved. Create or restart agents for it to take effect.",
   "app.stop": "Stop",
+  "app.stopGeneration": "Stop generation",
   "app.statusIdle": "Slacking",
   "app.statusRunning": "Thinking",
   "app.statusStarting": "Starting",

@@ -57,6 +57,12 @@ function gitStatusLabel(status?: string): string {
 	return t("drawer.gitFileModified");
 }
 
+/** Git 的 %ai 格式已经包含提交时区；保留原始时区，只隐藏秒数。 */
+function formatGitCommitDate(date: string): string {
+	const match = date.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
+	return match?.[1] ?? date;
+}
+
 /**
  * Files 抽屉顶部的 Git 区块：
  * - 始终渲染（工作区干净时也显示提示）
@@ -214,7 +220,7 @@ export function GitPanel(props: GitPanelProps) {
 						<span className="git-commit-meta">
 							{t("drawer.gitCommitBy", {
 								author: commit.author,
-								date: commit.date.split(" ")[0] ?? commit.date,
+								date: formatGitCommitDate(commit.date),
 							})}
 						</span>
 					</button>

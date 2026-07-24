@@ -6386,8 +6386,17 @@ ${goalTextRef.current}
               <div className="footer-actions">
                 <div className="send-behavior-menu-wrap">
                   {isAgentBusy ? (
-                    <button className="btn-circle stop" onClick={() => abortAgent()} title={t("app.stop")}>
-                      <Square size={18} strokeWidth={0} fill="currentColor" />
+                    <button
+                      className="composer-stop-button"
+                      onClick={() => abortAgent()}
+                      title={t("app.stop")}
+                      aria-label={t("app.stop")}
+                    >
+                      <span className="composer-stop-indicator" aria-hidden="true">
+                        <span className="composer-stop-dot" />
+                        <Square size={12} strokeWidth={0} fill="currentColor" />
+                      </span>
+                      <span className="composer-stop-label">{t("app.stopGeneration")}</span>
                     </button>
                   ) : (
                     <button

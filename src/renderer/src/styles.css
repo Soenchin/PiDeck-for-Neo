@@ -7140,7 +7140,7 @@ body.is-composer-resizing .composer-resize-handle::after {
   background: currentColor;
   box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
 }
-/* 圆形操作按钮（发送/停止） */
+/* 发送保持圆形；停止是运行态控制，不和发送按钮抢同一套视觉重量。 */
 .composer-footer .footer-actions {
   display: flex;
   align-items: center;
@@ -7189,15 +7189,77 @@ body.is-composer-resizing .composer-resize-handle::after {
 .composer-footer .btn-circle.send.queue:hover:not(:disabled) {
   background: #a56a1a;
 }
-.composer-footer .btn-circle.stop {
-  background: var(--color-danger);
-}
-.composer-footer .btn-circle.stop:hover:not(:disabled) {
-  background: #a11c10;
-}
 .composer-footer .btn-circle:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.composer-footer .composer-stop-button {
+  min-width: 0;
+  height: 32px;
+  padding: 0 11px 0 9px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-border-strong));
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: color-mix(in srgb, var(--color-danger) 76%, var(--color-text-primary));
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-bg-panel));
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  line-height: 1;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.1s ease,
+    box-shadow 0.16s ease;
+}
+.composer-footer .composer-stop-button:hover {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 16%, var(--color-bg-panel));
+  border-color: color-mix(in srgb, var(--color-danger) 58%, var(--color-border-strong));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 9%, transparent);
+}
+.composer-footer .composer-stop-button:active {
+  transform: scale(0.97);
+}
+.composer-footer .composer-stop-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.composer-footer .composer-stop-indicator {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  color: currentColor;
+}
+.composer-footer .composer-stop-indicator svg {
+  width: 11px;
+  height: 11px;
+  position: relative;
+  z-index: 1;
+}
+.composer-footer .composer-stop-dot {
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.12;
+  animation: composer-stop-pulse 1.8s ease-out infinite;
+}
+@keyframes composer-stop-pulse {
+  0%, 100% { transform: scale(0.8); opacity: 0.1; }
+  45% { transform: scale(1.35); opacity: 0.22; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-footer .composer-stop-dot {
+    animation: none;
+  }
 }
 .send-behavior-menu-wrap {
   position: relative;
