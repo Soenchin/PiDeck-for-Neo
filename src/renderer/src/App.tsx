@@ -979,7 +979,8 @@ export function App() {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [historyNavigating, setHistoryNavigating] = useState(false);
   const [savedPrompt, setSavedPrompt] = useState("");
-  const [compacting, setCompacting] = useState(false);
+  /** 手动压缩按 Agent 隔离，切换会话时不把旧会话的 loading 带到新会话。 */
+  const [compactingAgentId, setCompactingAgentId] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<DrawerPanel | null>(null);
 
   // ── 每个 Agent 的抽屉面板状态持久化（localStorage） ──
@@ -1858,6 +1859,13 @@ export function App() {
         setPendingAgents(remainingPendingAgents);
       }
       setAgents(nextAgents);
+      // 主进程在 compact() finally 中先广播 idle，再结束 IPC promise；
+      // 这里按 Agent 状态清掉本地 loading，避免慢 getRuntimeState 让按钮长期显示“压缩中”。
+      setCompactingAgentId((current) => {
+        if (!current) return current;
+        const trackedAgent = nextAgents.find((agent) => agent.id === current);
+        return trackedAgent && trackedAgent.status !== "running" ? null : current;
+      });
       setActiveAgentId((current) => {
         if (!current) return undefined;
         if (nextAgents.some((agent) => agent.id === current)) return current;
@@ -1944,12 +1952,17 @@ export function App() {
     });
     // 监听后端主动推送的 runtimeState 更新(如 agent_end 时重置 isStreaming),
     // 确保前端 isAgentBusy 判断基于最新状态,排队 flush 能正常触发。
-    const offRuntimeState = api.agents.onRuntimeState((payload) =>
+    const offRuntimeState = api.agents.onRuntimeState((payload) => {
       setRuntimeStateByAgent((current) => ({
         ...current,
         [payload.agentId]: payload.state,
-      })),
-    );
+      }));
+      if (payload.state.isCompacting === false) {
+        setCompactingAgentId((current) =>
+          current === payload.agentId ? null : current,
+        );
+      }
+    });
     // 监听流式思考内容更新,用于在 agent 响应前展示推理过程
     const offThinking = api.agents.onThinking((payload: ThinkingUpdate) =>
       setStreamingThinking((current) => ({
@@ -3830,19 +3843,22 @@ export function App() {
   }
 
   async function compactAgent(compactPrompt?: string) {
-    if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
-    setCompacting(true);
+    const agentId = activeAgentId;
+    if (!agentId || isPendingAgentId(agentId)) return;
+    if (compactingAgentId === agentId) return;
+    setCompactingAgentId(agentId);
+    showToast(t("app.compacting"), 2200);
     try {
-      const state = await api.agents.compact(activeAgentId, compactPrompt);
+      const state = await api.agents.compact(agentId, compactPrompt);
       setRuntimeStateByAgent((current) => ({
         ...current,
-        [activeAgentId]: state,
+        [agentId]: state,
       }));
       showToast(t("app.compactDone"));
     } catch (e) {
       showToast(t("app.compactFailed"));
     } finally {
-      setCompacting(false);
+      setCompactingAgentId((current) => (current === agentId ? null : current));
     }
   }
 
@@ -4048,7 +4064,10 @@ export function App() {
   const composerDisabled = !activeAgent || isAgentStarting;
   const isAgentBusy = Boolean(
     activeAgent &&
-    (activeAgent.status === "running" || activeRuntimeState?.isStreaming),
+    (activeAgent.status === "running" ||
+      activeRuntimeState?.isStreaming ||
+      activeRuntimeState?.isCompacting ||
+      compactingAgentId === activeAgentId),
   );
 
   // 切换 agent 时不能沿用上一会话的 busy 边沿,否则旧 agent 结束可能误触发新 agent 的 goal 续接。
@@ -6121,7 +6140,7 @@ ${goalTextRef.current}
             />
             <ComposerToolbar
               state={activeRuntimeState}
-              compacting={compacting}
+              compacting={compactingAgentId === activeAgentId}
               disabled={isAgentBusy || composerDisabled}
               onPickModel={openModelPicker}
               onPickThinking={() => setThinkingPickerOpen(true)}

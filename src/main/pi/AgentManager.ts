@@ -62,6 +62,13 @@ export class AgentManager {
 	 */
 	private static readonly AGENT_SETTLED_TIMEOUT_MS = 5000;
 	/**
+	 * 压缩需要额外调用模型生成摘要，耗时可能明显超过普通 RPC；至少沿用设置里的
+	 * 命令超时（默认 10 分钟），避免硬编码 120 秒把仍在工作的压缩误判成失败。
+	 */
+	private static readonly COMPACTION_RPC_MIN_TIMEOUT_MS = 120_000;
+	/** 压缩完成后回读一次 runtime state 的短超时；UI 不应再等待普通命令的 30 秒超时。 */
+	private static readonly COMPACTION_STATE_RPC_TIMEOUT_MS = 5_000;
+	/**
 	 * 超过该大小的历史会话跳过 get_messages RPC，改为直接从 JSONL 文件尾部读取最近 N 条消息。
 	 * pi 当前不支持 limit/cursor，40MB JSONL 会以单行大 JSON 返回，主进程 JSON.parse 会短暂冻结整个应用。
 	 * 文件直接读取仅解析近尾部少量消息，避免大会话加载导致的界面冻结。
@@ -91,6 +98,8 @@ export class AgentManager {
 	 * 用户随后发送的新消息可能撞上 Pi 内部 compaction，表现为“会话中断”。
 	 */
 	private readonly rpcCompactingAgents = new Set<string>();
+	/** 最近结束的 compaction 时间，用于压制事件与 get_state 之间的短暂旧状态竞态。 */
+	private readonly compactionEndedAt = new Map<string, number>();
 	/** 用户主动停止的 agent，用于退出处理器中跳过自动重连 */
 	private readonly userInitiatedStop = new Set<string>();
 	/** 已尝试过自动重连的 agent（防止无限循环），重连成功后清除 */
@@ -1023,20 +1032,30 @@ export class AgentManager {
 		const runtime = this.requireRuntime(agentId);
 		const trimmedPrompt = prompt?.trim();
 		const startTime = Date.now();
+		const compactTimeoutMs = Math.max(
+			AgentManager.COMPACTION_RPC_MIN_TIMEOUT_MS,
+			this.settingsStore.get().rpcTimeout,
+		);
 
 		void this.appLogger?.info("agent", "Compact requested", {
 			agentId,
 			prompt: trimmedPrompt,
 			hasSessionPath: !!runtime.tab.sessionPath,
+			timeoutMs: compactTimeoutMs,
 		});
 
-		// 标记压缩中，退出处理器据此区分压缩重启与异常崩溃
+		// 标记压缩中，退出处理器据此区分压缩重启和异常崩溃。
 		this.compactingAgents.add(agentId);
+		runtime.tab.status = "running";
+		this.emitState();
+		let compactionCompleted = false;
 
 		try {
 			const response = await runtime.process.client.request(
-				trimmedPrompt ? { type: "compact", prompt: trimmedPrompt } : { type: "compact" },
-				120_000,
+				trimmedPrompt
+					? { type: "compact", customInstructions: trimmedPrompt }
+					: { type: "compact" },
+				compactTimeoutMs,
 			);
 			void this.appLogger?.info("agent", "Compact RPC response received", {
 				agentId,
@@ -1045,18 +1064,15 @@ export class AgentManager {
 				rpcError: response.error,
 			});
 
-			// 检查 RPC 返回的 success 字段：pi CLI 可能压缩成功但后续步骤抛异常，
-			// 此时 session 文件已写入但 RPC 仍返回错误。
+			// Pi 会把“没有可压缩内容”等业务失败作为 success:false 返回，而不是 reject。
 			if (!response.success) {
-				void this.appLogger?.warn("agent", "Compact RPC returned failure (session might still be written)", {
-					agentId,
-					error: response.error,
-				});
+				throw new Error(response.error ?? "Compaction failed");
 			}
+			compactionCompleted = true;
 
-			this.compactingAgents.delete(agentId);
-			// 压缩成功且进程未退出，直接加载消息
-			await this.loadMessages(agentId).catch(() => undefined);
+			// RPC response 表示 Pi 已完成 compaction；消息刷新放后台，不能让按钮继续等待
+			// get_messages/get_entries 的慢请求。下一次消息事件或后台加载会补齐时间线。
+			void this.loadMessages(agentId).catch(() => undefined);
 			void this.appLogger?.info("agent", "Compact completed successfully", {
 				agentId,
 				totalElapsedMs: Date.now() - startTime,
@@ -1072,31 +1088,40 @@ export class AgentManager {
 				hasSessionPath: !!runtime.tab.sessionPath,
 			});
 
-			this.compactingAgents.delete(agentId);
-
-			// 如果进程在压缩期间退出（pi 压缩后自动重启进程的行为），
-			// RPC 请求会因连接断开而失败，但压缩实际已完成。
-			// 尝试重连同一会话，不从 compact() 层面抛出错误。
+			// 如果进程在压缩期间退出（旧版 pi 的压缩重启行为），RPC 请求会因连接断开而失败，
+			// 但压缩实际可能已经写入 session 文件；尝试重连同一会话。
 			if (!processAlive && runtime.tab.sessionPath) {
 				void this.appLogger?.info("agent", "Compact: process exited, reattaching", {
 					agentId,
 				});
 				await this.reattachProcess(agentId, runtime.tab.sessionPath);
-				runtime.tab.status = "idle";
+				compactionCompleted = true;
 				await this.loadMessages(agentId).catch(() => undefined);
 				this.addMessage(agentId, "system", "会话压缩完成");
-				this.emitState();
 				void this.appLogger?.info("agent", "Compact: reattach succeeded", {
 					agentId,
 					totalElapsedMs: Date.now() - startTime,
 				});
 			} else {
-				// 非退出相关的 RPC 错误，正常抛出
 				throw error;
 			}
+		} finally {
+			// 无论 RPC 超时、业务失败还是进程重启，都不能把桌面端永久留在“压缩中”。
+			this.compactingAgents.delete(agentId);
+			if (compactionCompleted) {
+				// compaction_end 通常已经清理过该集合；这里再收口一次，覆盖事件丢失/旧版 Pi。
+				this.rpcCompactingAgents.delete(agentId);
+				this.markCompactionEnded(agentId);
+			}
+			const compactionStillActive = this.rpcCompactingAgents.has(agentId);
+			if (!compactionStillActive && (runtime.tab.status as string) !== "error" && (runtime.tab.status as string) !== "closed") {
+				runtime.tab.status = "idle";
+			}
+			this.emitState();
+			void this.emitRuntimeState(agentId);
 		}
 
-		return this.getRuntimeState(agentId);
+		return this.getRuntimeState(agentId, AgentManager.COMPACTION_STATE_RPC_TIMEOUT_MS);
 	}
 
 	/**
@@ -1261,14 +1286,14 @@ export class AgentManager {
 		}
 	}
 
-	async getRuntimeState(agentId: string): Promise<AgentRuntimeState> {
+	async getRuntimeState(agentId: string, requestTimeoutMs = 30_000): Promise<AgentRuntimeState> {
 		const runtime = this.requireRuntime(agentId);
 		const [stateResponse, statsResponse] = await Promise.all([
 			runtime.process.client
-				.request({ type: "get_state" })
+				.request({ type: "get_state" }, requestTimeoutMs)
 				.catch(() => ({ data: undefined })),
 			runtime.process.client
-				.request({ type: "get_session_stats" })
+				.request({ type: "get_session_stats" }, requestTimeoutMs)
 				.catch(() => ({ data: undefined })),
 		]);
 		const state = stateResponse.data as any;
@@ -1316,6 +1341,12 @@ export class AgentManager {
 					? await this.getCumulativeCacheMessageHitRate(runtime.tab.sessionPath)
 					: undefined;
 		const cacheHitPercent = this.clampPercent(computedCacheHitPercent);
+		const compactionEndedAt = this.compactionEndedAt.get(agentId);
+		const recentCompactionEnd =
+			compactionEndedAt != null && Date.now() - compactionEndedAt < 5_000;
+		if (compactionEndedAt != null && !recentCompactionEnd) {
+			this.compactionEndedAt.delete(agentId);
+		}
 		return {
 			modelName: model?.name ?? model?.id,
 			provider: model?.provider,
@@ -1323,7 +1354,7 @@ export class AgentManager {
 			thinkingLevel: state?.thinkingLevel,
 			isStreaming: state?.isStreaming,
 			isCompacting:
-				state?.isCompacting ||
+				(!recentCompactionEnd && state?.isCompacting) ||
 				this.rpcCompactingAgents.has(agentId) ||
 				this.compactingAgents.has(agentId),
 			/** 工具执行状态从本地追踪，无需 Pi 进程查询 */
@@ -1343,6 +1374,17 @@ export class AgentManager {
 			cacheHitPercent,
 			cost: stats?.cost,
 		};
+	}
+
+	private markCompactionEnded(agentId: string) {
+		const endedAt = Date.now();
+		this.compactionEndedAt.set(agentId, endedAt);
+		const timer = setTimeout(() => {
+			if (this.compactionEndedAt.get(agentId) === endedAt) {
+				this.compactionEndedAt.delete(agentId);
+			}
+		}, 5_000);
+		timer.unref?.();
 	}
 
 	private async emitRuntimeState(agentId: string) {
@@ -2208,6 +2250,7 @@ export class AgentManager {
 		// 用于记录压缩耗时和结果，便于排查压缩性能问题。
 		if (typed.type === "compaction_start") {
 			this.rpcCompactingAgents.add(agentId);
+			this.compactionEndedAt.delete(agentId);
 			if (runtime) {
 				// 自动压缩在 agent_end 之后触发：Pi 仍在改写上下文，但不会再发 agent_start。
 				// 因此桌面端必须主动保持 running，阻止用户误以为空闲并继续发送消息。
@@ -2222,17 +2265,21 @@ export class AgentManager {
 		}
 		if (typed.type === "compaction_end") {
 			this.rpcCompactingAgents.delete(agentId);
+			this.markCompactionEnded(agentId);
+			const isManualCompaction = typed.reason === "manual";
 			if (runtime) {
-				// compaction 会向 session JSONL 写入新的边界记录；立即重载消息，
-				// 避免前端仍展示压缩前分支，下一轮继续对话时看起来像“断在旧会话”。
-				void this.loadMessages(agentId).catch(() => undefined);
-				if (runtime.tab.status !== "error") {
-					// compaction_end 之后 Pi 仍可能因 overflow retry 或 queued follow-up 自动继续。
-					// 只有 agent_settled 才表示不会再自动发起下一轮，不能在这里提前 idle。
+				// 自动 compaction 没有对应的手动 compact() 收口，因此需要在事件结束后刷新消息；
+				// 手动 compaction 由 compact() 的后台刷新统一处理，避免重复发两个慢 RPC。
+				if (!isManualCompaction) void this.loadMessages(agentId).catch(() => undefined);
+				if (!isManualCompaction && runtime.tab.status !== "error") {
+					// 自动压缩结束后可能还有 overflow retry 或 queued follow-up；
+					// 手动压缩则由 compact() finally 统一收口到 idle，不能依赖 agent_settled。
 					runtime.tab.status = "running";
 				}
 				this.emitState();
-				void this.emitRuntimeState(agentId);
+				// 手动 compact() 自己会在 RPC settle 后发最终 runtime state；
+				// 不在这里发一个仍带旧 isCompacting=true 的并发查询，避免覆盖最终状态。
+				if (!isManualCompaction) void this.emitRuntimeState(agentId);
 			}
 			void this.appLogger?.info("agent", "Compaction ended", {
 				agentId,
@@ -2331,6 +2378,7 @@ export class AgentManager {
 				this.activeAssistantMessageIds.delete(agentId);
 				this.toolMessageIds.delete(agentId);
 				this.rpcCompactingAgents.delete(agentId);
+				this.compactionEndedAt.delete(agentId);
 				this.emitThinking(agentId, "");
 				this.emitState();
 				void this.emitRuntimeState(agentId);
