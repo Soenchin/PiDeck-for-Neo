@@ -13941,20 +13941,38 @@ a.config-btn {
   color: var(--color-warning);
 }
 
+.git-remote-header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .git-fetch-btn {
-  margin: 4px 8px 0;
-  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 7px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-sm);
   background: var(--color-bg-elevated, transparent);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-caption);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-micro);
   font-weight: 600;
+  line-height: 1.2;
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .git-fetch-btn:hover:not(:disabled) {
   background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
 }
 
 .git-fetch-btn:disabled {
@@ -13965,6 +13983,14 @@ a.config-btn {
 .git-fetch-btn:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+.git-fetch-btn .spinning {
+  animation: git-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes git-refresh-spin {
+  to { transform: rotate(360deg); }
 }
 
 .modified-files-header {
@@ -14044,28 +14070,87 @@ a.config-btn {
   background: var(--color-accent-soft);
 }
 
-.modified-files-toggle {
-  margin: 6px 8px 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
+.git-expand-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: calc(100% - 16px);
+  min-height: var(--control-height-sm);
+  margin: 5px 8px 2px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
   line-height: 1.2;
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
-.modified-files-toggle:hover {
-  color: var(--color-accent);
+.git-expand-button:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
 }
 
-.git-list-toggle {
-  display: block;
-  width: calc(100% - 16px);
-  margin-top: 4px;
-  padding: 5px 8px;
+.git-expand-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.git-expand-button svg {
+  transition: transform 0.15s ease;
+}
+
+.git-expand-button svg.open {
+  transform: rotate(180deg);
+}
+
+.files-panel-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 8px 0 0;
   border-top: 1px solid var(--color-border-subtle);
-  text-align: center;
+}
+
+.files-panel-footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--control-height-sm);
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-muted);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.files-panel-footer button:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.files-panel-footer button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* 会话文件摘要卡片：位于输入框上方、扩展 widget 下方，默认可折叠。 */

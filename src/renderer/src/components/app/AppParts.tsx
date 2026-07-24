@@ -687,7 +687,6 @@ export function ComposerToolbar(props: {
 	compacting: boolean;
 	disabled?: boolean;
 	onPickModel: () => void;
-	onPickPromptTemplate: () => void;
 	onPickThinking: () => void;
 	onCompact: () => void;
 	/** 当前发送模式，用于按钮文字和轻高亮 */
@@ -739,13 +738,6 @@ export function ComposerToolbar(props: {
 			)}
 			<button onClick={props.onPickModel} disabled={props.disabled}>
 				{t("app.model")}: {props.state?.provider ? `${props.state.provider}/` : ""}{props.state?.modelName ?? "-"}
-			</button>
-			<button
-				onClick={props.onPickPromptTemplate}
-				disabled={props.disabled}
-				title={t("app.promptTemplatePickerTitle")}
-			>
-				{t("app.promptTemplatePickerTitle")}
 			</button>
 			<button onClick={props.onPickThinking} disabled={props.disabled}>
 				{t("app.think")}: {thinkingDisplay}
@@ -4243,15 +4235,6 @@ function FilesPanel(props: {
 		<div className="files-panel files-panel-root">
 			<div className="panel-action-row files-panel-toolbar">
 				<span>{t("drawer.fileItems", { count: props.files.length })}</span>
-				<div className="panel-action-buttons files-panel-actions">
-					{props.onOpenFolder && (
-						<button onClick={props.onOpenFolder} title={t("drawer.openFolder")}>
-							<Folder size={14} />
-							{t("drawer.openFolder")}
-						</button>
-					)}
-					<button onClick={props.onRefreshFiles}>{t("common.refresh")}</button>
-				</div>
 			</div>
 			{/* Git 区块始终显示：干净时也给提示；提交/远端按需拉取 */}
 			<GitPanel
@@ -4273,6 +4256,18 @@ function FilesPanel(props: {
 					);
 				}}
 			/>
+			<div className="files-panel-footer">
+				{props.onOpenFolder && (
+					<button type="button" onClick={props.onOpenFolder} title={t("drawer.openFolder")}>
+						<Folder size={14} />
+						<span>{t("drawer.openFolder")}</span>
+					</button>
+				)}
+				<button type="button" onClick={props.onRefreshFiles} title={t("common.refresh")}>
+					<RefreshCw size={14} />
+					<span>{t("common.refresh")}</span>
+				</button>
+			</div>
 			{props.files.map((node) => (
 				<FileNode
 					key={node.path}

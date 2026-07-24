@@ -58,10 +58,7 @@ import { useFeishuBridge } from "./hooks/useFeishuBridge";
 import { CloseIconButton } from "./components/ui/IconButton";
 import {
   buildComposerPromptSubmission,
-  expandPromptTemplates,
   getComposerEnterIntent,
-  parseArgumentHint,
-  translateBuiltinPromptDescription,
 } from "./composerBehavior";
 import {
   getProjectAgentSessionDisplay,
@@ -96,7 +93,6 @@ import {
   ImagePreviewModal,
   LogoMark,
   ModelPicker,
-  PromptTemplatePicker,
   ProjectAvatar,
   ProjectContextMenu,
   PromptSuggestions,
@@ -599,13 +595,10 @@ export function App() {
   >({});
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [promptTemplatePickerOpen, setPromptTemplatePickerOpen] = useState(false);
-  const [promptTemplateList, setPromptTemplateList] = useState<
-    Array<{ name: string; path: string; description: string; content: string; argumentHint?: string }>
-  >([]);
   const [composerModePickerOpen, setComposerModePickerOpen] = useState(false);
   const [thinkingPickerOpen, setThinkingPickerOpen] = useState(false);
   const [sendBehaviorMenuOpen, setSendBehaviorMenuOpen] = useState(false);
+  const sendBehaviorMenuRef = useRef<HTMLDivElement | null>(null);
   const [sessionFeishuBotId, setSessionFeishuBotId] = useState<
     string | undefined
   >(undefined);
@@ -1690,11 +1683,8 @@ export function App() {
     [commands],
   );
   const validCommandNames = useMemo(
-    () => new Set([
-      ...mergedCommands.map((c) => c.name),
-      ...promptTemplateList.map((t) => t.name),
-    ]),
-    [mergedCommands, promptTemplateList],
+    () => new Set(mergedCommands.map((c) => c.name)),
+    [mergedCommands],
   );
 
   /** 有效文件路径白名单：仅工作区真实存在的 @ 引用渲染为 chip */
@@ -3825,53 +3815,6 @@ export function App() {
     setModelPickerOpen(true);
   }
 
-  async function openPromptTemplatePicker() {
-    if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
-    const allTemplates: typeof promptTemplateList = [];
-    try {
-      const globalResult = await api.prompts.list();
-      for (const tpl of globalResult.templates) {
-        allTemplates.push({
-            ...tpl,
-            description: translateBuiltinPromptDescription(tpl),
-            argumentHint: parseArgumentHint(tpl.content),
-        });
-      }
-    } catch {
-      // 全局列表失败时继续加载项目列表
-    }
-    // 同时加载当前活动项目的项目级提示词
-    const activeProject = activeProjectId
-      ? projects.find((p) => p.id === activeProjectId)
-      : undefined;
-    if (activeProject) {
-      try {
-        const projectResult = await api.prompts.listByProject(activeProject.path);
-        allTemplates.push(...projectResult.templates);
-      } catch {
-        // 项目无 .pi/prompts/ 目录时静默跳过
-      }
-    }
-    setPromptTemplateList(allTemplates);
-    setPromptTemplatePickerOpen(true);
-  }
-
-  function selectPromptTemplate(template: {
-    name: string;
-    path: string;
-    description: string;
-    content: string;
-    argumentHint?: string;
-  }) {
-    // 插入斜线命令形式，pi 会在发送时自动展开，末尾加空格分割后续输入
-    setPrompt((prev) => {
-      const trimmed = prev ? prev.trimEnd() : "";
-      if (!trimmed) return "/" + template.name + " ";
-      return trimmed + " /" + template.name + " ";
-    });
-    setPromptTemplatePickerOpen(false);
-  }
-
   async function selectModel(model: AvailableModel) {
     if (!activeAgentId || isPendingAgentId(activeAgentId)) return;
     const state = await api.agents.setModel(
@@ -4161,6 +4104,24 @@ export function App() {
       compactingAgentId === activeAgentId),
   );
 
+  // 发送策略菜单属于 composer 的临时上下文；点击其外部的空白区域就收起，
+  // 避免用户必须精准点回小箭头才能退出选择状态。
+  useEffect(() => {
+    if (!sendBehaviorMenuOpen) return;
+    if (!isAgentBusy) {
+      setSendBehaviorMenuOpen(false);
+      return;
+    }
+    const handleOutsidePointerDown = (event: globalThis.PointerEvent) => {
+      const target = event.target as Node;
+      if (!sendBehaviorMenuRef.current?.contains(target)) {
+        setSendBehaviorMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, [isAgentBusy, sendBehaviorMenuOpen]);
+
   // 切换 agent 时不能沿用上一会话的 busy 边沿,否则旧 agent 结束可能误触发新 agent 的 goal 续接。
   useEffect(() => {
     prevIsAgentBusyRef.current = false;
@@ -4342,8 +4303,7 @@ ${text}
     setComposerAutoHeight(COMPOSER_MIN_HEIGHT);
 
     const resolvedMessage = await resolveSessionRefs(message);
-    const { message: expandedMessage, description: templateDescription } = expandPromptTemplates(resolvedMessage, promptTemplateList);
-    await submitPromptSnapshot(activeAgentId, expandedMessage, images, undefined, currentComposerAgentMode, templateDescription);
+    await submitPromptSnapshot(activeAgentId, resolvedMessage, images, undefined, currentComposerAgentMode);
     // 用 MutationObserver 监听消息列表 DOM 变化，新消息出现时滚动到底部
     const scrollOnNewMessage = () => {
       const timeline = timelineRef.current;
@@ -6253,7 +6213,6 @@ ${goalTextRef.current}
               disabled={isAgentBusy || composerDisabled}
               onPickModel={openModelPicker}
               onPickThinking={() => setThinkingPickerOpen(true)}
-              onPickPromptTemplate={openPromptTemplatePicker}
               onCompact={() => compactAgent()}
               composerAgentMode={currentComposerAgentMode}
               onOpenComposerModePicker={() => setComposerModePickerOpen(true)}
@@ -6384,7 +6343,7 @@ ${goalTextRef.current}
                 <span className="composer-mode-status">{composerStatusText}</span>
               )}
               <div className="footer-actions">
-                <div className="send-behavior-menu-wrap">
+                <div className="send-behavior-menu-wrap" ref={sendBehaviorMenuRef}>
                   {isAgentBusy ? (
                     <button
                       className="composer-stop-button"
@@ -7125,13 +7084,6 @@ ${goalTextRef.current}
             await api.settings.update({ piEnvironmentChecked: false });
             showToast(t("environment.checkFlagCleared"));
           }}
-        />
-      )}
-      {promptTemplatePickerOpen && (
-        <PromptTemplatePicker
-          templates={promptTemplateList}
-          onClose={() => setPromptTemplatePickerOpen(false)}
-          onPick={selectPromptTemplate}
         />
       )}
       {modelPickerOpen && (

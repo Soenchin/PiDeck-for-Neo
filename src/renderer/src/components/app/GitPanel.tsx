@@ -1,4 +1,4 @@
-import { Cloud, GitBranch, History } from "lucide-react";
+import { ChevronDown, Cloud, GitBranch, History, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type {
 	GitCommitFile,
@@ -374,13 +374,14 @@ export function GitPanel(props: GitPanelProps) {
 							})}
 							{latestWorkingTree.length > PREVIEW_LIMIT && (
 								<button
-									className="modified-files-toggle"
+									className="git-expand-button"
 									type="button"
 									onClick={() => setExpandedWorkingTree((current) => !current)}
 								>
-									{expandedWorkingTree
+									<ChevronDown size={14} className={expandedWorkingTree ? "open" : ""} />
+									<span>{expandedWorkingTree
 										? t("common.collapse")
-										: t("drawer.moreFiles", { count: hiddenWorkingTreeCount })}
+										: t("drawer.moreFiles", { count: hiddenWorkingTreeCount })}</span>
 								</button>
 							)}
 						</>
@@ -400,13 +401,14 @@ export function GitPanel(props: GitPanelProps) {
 							{renderCommitList(visibleCommits)}
 							{commits.length > PREVIEW_LIMIT && (
 								<button
-									className="modified-files-toggle git-list-toggle"
+									className="git-expand-button"
 									type="button"
 									onClick={() => setExpandedCommits((current) => !current)}
 								>
-									{expandedCommits
+									<ChevronDown size={14} className={expandedCommits ? "open" : ""} />
+									<span>{expandedCommits
 										? t("drawer.gitCollapse")
-										: t("drawer.gitExpand", { count: hiddenCommitsCount })}
+										: t("drawer.gitExpand", { count: hiddenCommitsCount })}</span>
 								</button>
 							)}
 						</>
@@ -414,8 +416,31 @@ export function GitPanel(props: GitPanelProps) {
 				</div>
 			) : (
 				<div className="git-remote-section">
-					<div className="modified-files-header">
+					<div className="modified-files-header git-remote-header">
 						<span>{t("drawer.gitRemoteTitle")}</span>
+						<button
+							type="button"
+							className="git-fetch-btn"
+							disabled={fetching}
+							onClick={async () => {
+								if (!projectId || !window.piDesktop?.git?.fetch) return;
+								setFetching(true);
+								try {
+									const ok = await window.piDesktop.git.fetch(projectId);
+									if (!ok) {
+										// 失败时仍尝试刷新本地 refs，避免 UI 卡在旧状态。
+									}
+									await loadRemote();
+								} finally {
+									setFetching(false);
+								}
+							}}
+						>
+							<RefreshCw size={13} className={fetching ? "spinning" : ""} />
+							<span>{fetching
+								? t("drawer.gitRemoteFetching")
+								: t("drawer.gitRemoteFetch")}</span>
+						</button>
 					</div>
 					{remoteLoading ? (
 						<div className="git-loading">{t("common.loading")}</div>
@@ -461,44 +486,24 @@ export function GitPanel(props: GitPanelProps) {
 										{renderCommitList(visibleRemoteCommits)}
 										{remoteCommits.length > PREVIEW_LIMIT && (
 											<button
-												className="modified-files-toggle git-list-toggle"
+												className="git-expand-button"
 												type="button"
 												onClick={() =>
 														setExpandedRemoteCommits((current) => !current)
 													}
 											>
-												{expandedRemoteCommits
+												<ChevronDown size={14} className={expandedRemoteCommits ? "open" : ""} />
+												<span>{expandedRemoteCommits
 													? t("drawer.gitCollapse")
 													: t("drawer.gitExpand", {
 															count: hiddenRemoteCommitsCount,
-														})}
+														})}</span>
 											</button>
 										)}
 									</>
 								)}
 							</div>
-							<button
-								type="button"
-								className="git-fetch-btn"
-								disabled={fetching}
-								onClick={async () => {
-									if (!projectId || !window.piDesktop?.git?.fetch) return;
-									setFetching(true);
-									try {
-										const ok = await window.piDesktop.git.fetch(projectId);
-										if (!ok) {
-											// 失败时仍尝试刷新本地 refs，避免 UI 卡在旧状态。
-										}
-										await loadRemote();
-									} finally {
-										setFetching(false);
-									}
-								}}
-							>
-								{fetching
-									? t("drawer.gitRemoteFetching")
-									: t("drawer.gitRemoteFetch")}
-							</button>
+
 						</>
 					)}
 				</div>
