@@ -39,6 +39,8 @@ import {
   Pencil,
   ArrowUp,
   Square,
+  Zap,
+  ListPlus,
   Terminal,
   Filter,
   GitBranch,
@@ -6404,22 +6406,45 @@ ${goalTextRef.current}
                   {isAgentBusy &&
                     (prompt.trim() || attachedImages.length > 0) && (
                       <button
+                        type="button"
                         className="send-behavior-toggle"
                         title={t("app.sendBehaviorTitle")}
+                        aria-label={t("app.sendBehaviorTitle")}
+                        aria-expanded={sendBehaviorMenuOpen}
                         onClick={() => setSendBehaviorMenuOpen((open) => !open)}
                       >
-                        <ChevronDown size={14} />
+                        <ChevronDown size={14} strokeWidth={2.25} />
                       </button>
                     )}
                   {sendBehaviorMenuOpen && (
-                    <div className="send-behavior-menu">
-                      <button onClick={sendPrompt}>
-                        <strong>{t("app.sendSteerTitle")}</strong>
-                        <span>{t("app.sendSteerDesc")}</span>
+                    <div className="send-behavior-menu" role="menu">
+                      <button
+                        type="button"
+                        className="send-behavior-option"
+                        role="menuitem"
+                        onClick={sendPrompt}
+                      >
+                        <span className="send-behavior-option-icon steer">
+                          <Zap size={14} strokeWidth={2.25} />
+                        </span>
+                        <span className="send-behavior-option-copy">
+                          <strong>{t("app.sendSteerTitle")}</strong>
+                          <span>{t("app.sendSteerDesc")}</span>
+                        </span>
                       </button>
-                      <button onClick={sendPromptAsFollowUp}>
-                        <strong>{t("app.sendFollowUpTitle")}</strong>
-                        <span>{t("app.sendFollowUpDesc")}</span>
+                      <button
+                        type="button"
+                        className="send-behavior-option"
+                        role="menuitem"
+                        onClick={sendPromptAsFollowUp}
+                      >
+                        <span className="send-behavior-option-icon follow-up">
+                          <ListPlus size={14} strokeWidth={2.1} />
+                        </span>
+                        <span className="send-behavior-option-copy">
+                          <strong>{t("app.sendFollowUpTitle")}</strong>
+                          <span>{t("app.sendFollowUpDesc")}</span>
+                        </span>
                       </button>
                     </div>
                   )}

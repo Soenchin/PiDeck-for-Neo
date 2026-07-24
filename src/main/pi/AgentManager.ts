@@ -3683,7 +3683,18 @@ export class AgentManager {
 	private emit(channel: string, payload: unknown) {
 		const window = this.getWindow();
 		if (!window || window.isDestroyed()) return;
-		window.webContents.send(channel, payload);
+		const webContents = window.webContents;
+		if (webContents.isDestroyed()) return;
+
+		// renderer 刷新/热重载时，BrowserWindow 可能还没 destroyed，但它的
+		// WebFrame 已经 disposed。检查和 send 之间仍存在竞态，因此必须捕获
+		// 这里的同步异常；事件只是 UI 更新，不能让后台 Agent 事件链报错。
+		try {
+			webContents.send(channel, payload);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (!/disposed|destroyed|webframe/i.test(message)) throw error;
+		}
 	}
 }
 
