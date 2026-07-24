@@ -13769,7 +13769,6 @@ a.config-btn {
 .modified-files-section {
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 /* Files 抽屉顶部 Git 区块：工作区/提交/远端三 tab */
@@ -13777,6 +13776,11 @@ a.config-btn {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* 折叠态保持历史页的基准高度；只有点击当前 tab 的展开按钮才显示完整内容。 */
+.git-section:not(.expanded) {
+  overflow: hidden;
 }
 
 .git-tab-bar {
@@ -13941,53 +13945,6 @@ a.config-btn {
   color: var(--color-warning);
 }
 
-.git-remote-header {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.git-fetch-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  margin: 0;
-  padding: 4px 7px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-elevated, transparent);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-micro);
-  font-weight: 600;
-  line-height: 1.2;
-  cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.git-fetch-btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-strong);
-  color: var(--color-text-primary);
-}
-
-.git-fetch-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.git-fetch-btn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.git-fetch-btn .spinning {
-  animation: git-refresh-spin 0.8s linear infinite;
-}
 
 @keyframes git-refresh-spin {
   to { transform: rotate(360deg); }
@@ -14110,6 +14067,21 @@ a.config-btn {
 
 .git-expand-button svg.open {
   transform: rotate(180deg);
+}
+
+.git-expand-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.git-expand-button .spinning {
+  animation: git-refresh-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .git-expand-button .spinning {
+    animation: none;
+  }
 }
 
 .files-panel-footer {

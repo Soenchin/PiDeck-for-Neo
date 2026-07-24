@@ -1,5 +1,5 @@
 import { ChevronDown, Cloud, GitBranch, History, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
 	GitCommitFile,
 	GitCommitSummary,
@@ -36,6 +36,10 @@ type GitPanelProps = {
 };
 
 const PREVIEW_LIMIT = 5;
+/** 远端页还要容纳同步摘要和刷新按钮，折叠态少展示两条提交，确保展开按钮始终可见。 */
+const REMOTE_PREVIEW_LIMIT = 3;
+/** 历史页折叠状态的兜底高度；首次打开历史页后会用实际 DOM 高度校准。 */
+const COLLAPSED_GIT_PANEL_FALLBACK_HEIGHT = 410;
 
 function gitStatusIcon(status?: string): string {
 	switch (status) {
@@ -88,6 +92,8 @@ export function GitPanel(props: GitPanelProps) {
 	const [remoteLoading, setRemoteLoading] = useState(false);
 	const [fetching, setFetching] = useState(false);
 	const [isGitRepo, setIsGitRepo] = useState(true);
+	const [collapsedPanelHeight, setCollapsedPanelHeight] = useState<number | null>(null);
+	const gitPanelRef = useRef<HTMLDivElement | null>(null);
 
 	const projectId = props.projectId;
 
@@ -151,6 +157,7 @@ export function GitPanel(props: GitPanelProps) {
 		setCommitFiles([]);
 		setRemoteSummary(null);
 		setRemoteCommits([]);
+		setCollapsedPanelHeight(null);
 		setIsGitRepo(true);
 		if (!projectId || !window.piDesktop?.git?.isRepo) return;
 		void window.piDesktop.git
@@ -164,6 +171,30 @@ export function GitPanel(props: GitPanelProps) {
 		if (tab === "commits") void loadCommits();
 		if (tab === "remote") void loadRemote();
 	}, [tab, isGitRepo, loadCommits, loadRemote]);
+
+	// 以历史页折叠状态的实际高度作为所有 tab 的固定基准，避免切换 Git tab 时把文件树顶来顶去。
+	// 首次进入历史页前先使用兜底值；提交列表加载完成后再同步校准一次。
+	useLayoutEffect(() => {
+		if (tab !== "commits" || expandedCommits || commitsLoading || commits.length === 0) {
+			return;
+		}
+		const panel = gitPanelRef.current;
+		if (!panel) return;
+
+		const previousHeight = panel.style.height;
+		const previousOverflowY = panel.style.overflowY;
+		panel.style.height = "auto";
+		panel.style.overflowY = "visible";
+		const measuredHeight = Math.ceil(panel.getBoundingClientRect().height);
+		panel.style.height = previousHeight;
+		panel.style.overflowY = previousOverflowY;
+
+		if (measuredHeight > 0) {
+			setCollapsedPanelHeight((current) =>
+				current === measuredHeight ? current : measuredHeight,
+			);
+		}
+	}, [tab, expandedCommits, commitsLoading, commits.length, projectId]);
 
 	const onDiffCommitFile = props.onDiffCommitFile;
 
@@ -263,7 +294,7 @@ export function GitPanel(props: GitPanelProps) {
 		: commits.slice(0, PREVIEW_LIMIT);
 	const visibleRemoteCommits = expandedRemoteCommits
 		? remoteCommits
-		: remoteCommits.slice(0, PREVIEW_LIMIT);
+		: remoteCommits.slice(0, REMOTE_PREVIEW_LIMIT);
 	const hiddenCommitsCount = Math.max(0, commits.length - visibleCommits.length);
 	const hiddenRemoteCommitsCount = Math.max(
 		0,
@@ -277,11 +308,27 @@ export function GitPanel(props: GitPanelProps) {
 		0,
 		latestWorkingTree.length - visibleWorkingTree.length,
 	);
+	const currentTabExpanded =
+		tab === "working-tree"
+			? expandedWorkingTree
+			: tab === "commits"
+				? expandedCommits
+				: expandedRemoteCommits;
 
 	if (!projectId) return null;
 
 	return (
-		<div className="modified-files-section git-section">
+		<div
+			ref={gitPanelRef}
+			className={`modified-files-section git-section${currentTabExpanded ? " expanded" : ""}`}
+			style={
+				currentTabExpanded
+					? undefined
+					: {
+							height: `${collapsedPanelHeight ?? COLLAPSED_GIT_PANEL_FALLBACK_HEIGHT}px`,
+						}
+			}
+		>
 			<div className="git-tab-bar" role="tablist" aria-label="Git">
 				<button
 					type="button"
@@ -319,9 +366,6 @@ export function GitPanel(props: GitPanelProps) {
 				<div className="git-clean-message">{t("drawer.gitNotARepo")}</div>
 			) : tab === "working-tree" ? (
 				<>
-					<div className="modified-files-header">
-						<span>{t("drawer.gitChangedFiles")}</span>
-					</div>
 					{latestWorkingTree.length === 0 ? (
 						<div className="git-clean-message">{t("drawer.gitChangesNone")}</div>
 					) : (
@@ -389,9 +433,6 @@ export function GitPanel(props: GitPanelProps) {
 				</>
 			) : tab === "commits" ? (
 				<div className="git-commits-section">
-					<div className="modified-files-header">
-						<span>{t("drawer.gitCommitsTitle")}</span>
-					</div>
 					{commitsLoading ? (
 						<div className="git-loading">{t("common.loading")}</div>
 					) : commits.length === 0 ? (
@@ -416,32 +457,6 @@ export function GitPanel(props: GitPanelProps) {
 				</div>
 			) : (
 				<div className="git-remote-section">
-					<div className="modified-files-header git-remote-header">
-						<span>{t("drawer.gitRemoteTitle")}</span>
-						<button
-							type="button"
-							className="git-fetch-btn"
-							disabled={fetching}
-							onClick={async () => {
-								if (!projectId || !window.piDesktop?.git?.fetch) return;
-								setFetching(true);
-								try {
-									const ok = await window.piDesktop.git.fetch(projectId);
-									if (!ok) {
-										// 失败时仍尝试刷新本地 refs，避免 UI 卡在旧状态。
-									}
-									await loadRemote();
-								} finally {
-									setFetching(false);
-								}
-							}}
-						>
-							<RefreshCw size={13} className={fetching ? "spinning" : ""} />
-							<span>{fetching
-								? t("drawer.gitRemoteFetching")
-								: t("drawer.gitRemoteFetch")}</span>
-						</button>
-					</div>
 					{remoteLoading ? (
 						<div className="git-loading">{t("common.loading")}</div>
 					) : (
@@ -476,6 +491,29 @@ export function GitPanel(props: GitPanelProps) {
 									{t("drawer.gitRemoteNoUpstream")}
 								</div>
 							)}
+							<button
+								type="button"
+								className="git-expand-button"
+								disabled={fetching}
+								onClick={async () => {
+									if (!projectId || !window.piDesktop?.git?.fetch) return;
+									setFetching(true);
+									try {
+										const ok = await window.piDesktop.git.fetch(projectId);
+										if (!ok) {
+											// 失败时仍尝试刷新本地 refs，避免 UI 卡在旧状态。
+										}
+										await loadRemote();
+									} finally {
+										setFetching(false);
+									}
+								}}
+							>
+								<RefreshCw size={14} className={fetching ? "spinning" : ""} />
+								<span>{fetching
+									? t("drawer.gitRemoteFetching")
+									: t("drawer.gitRemoteFetch")}</span>
+							</button>
 							<div className="git-remote-commits-list">
 								{remoteCommits.length === 0 ? (
 									<div className="git-clean-message">
@@ -484,7 +522,7 @@ export function GitPanel(props: GitPanelProps) {
 								) : (
 									<>
 										{renderCommitList(visibleRemoteCommits)}
-										{remoteCommits.length > PREVIEW_LIMIT && (
+										{remoteCommits.length > REMOTE_PREVIEW_LIMIT && (
 											<button
 												className="git-expand-button"
 												type="button"
