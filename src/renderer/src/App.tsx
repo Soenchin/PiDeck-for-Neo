@@ -1072,6 +1072,7 @@ export function App() {
     piEnvironmentChecked: false,
     closeToTray: true,
     enableNotifications: true,
+    autoCheckUpdate: true,
     // showThinking 由 pi agent 的 hideThinkingBlock 控制，启动后从主进程加载的真实值会覆盖此处
     showThinking: true,
     showDevTools: false,
@@ -2143,13 +2144,14 @@ export function App() {
   }, [projectIdsKey]);
 
   useEffect(() => {
+    if (settings.autoCheckUpdate === false) return;
     const timer = window.setInterval(
       () => void checkAppUpdate("auto"),
       1000 * 60 * 60 * 6,
     );
     window.setTimeout(() => void checkAppUpdate("auto"), 5000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [settings.autoCheckUpdate]);
 
   useEffect(() => {
     if (activeAgentId && !isPendingAgentId(activeAgentId))

@@ -128,6 +128,7 @@ let previewSettings: AppSettings = {
 	piEnvironmentChecked: true,
 	closeToTray: true,
 	enableNotifications: true,
+	autoCheckUpdate: true,
 	// showThinking 由 pi agent 的 hideThinkingBlock 控制，运行时从主进程加载
 	showThinking: true,
 	showDevTools: false,

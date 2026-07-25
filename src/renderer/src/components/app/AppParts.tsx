@@ -94,6 +94,7 @@ import type {
 	AppSettings,
 	ComposerAgentMode,
 	AvailableModel,
+	CacheMissReason,
 	ChatMessage,
 	CodexImportReport,
 	CodexSessionSummary,
@@ -522,6 +523,22 @@ export function SessionStatus(props: {
 	if (!state) {
 		return props.accessory ? <div className="session-status">{props.accessory}</div> : null;
 	}
+
+	// 格式化缩存 miss 原因文案
+	const formatCacheMissReason = (reason?: CacheMissReason): string | undefined => {
+		if (!reason) return undefined;
+		const keyMap: Record<CacheMissReason, TranslationKey> = {
+			"first-turn": "app.cacheMissFirstTurn",
+			"provider-no-cache": "app.cacheMissProviderNoCache",
+			"idle-timeout": "app.cacheMissIdleTimeout",
+			"model-changed": "app.cacheMissModelChanged",
+			"compaction-rebuild": "app.cacheMissCompactionRebuild",
+			"cache-chain-reset": "app.cacheMissCacheChainReset",
+			"no-cache-data": "app.cacheMissProviderNoCache",
+		};
+		return t(keyMap[reason]);
+	};
+
 	return (
 		<div className="session-status">
 			{state.contextPercent != null && (
@@ -556,6 +573,26 @@ export function SessionStatus(props: {
 									<span>{t("app.cacheHit")}</span>
 									<strong>{state.cacheHitPercent.toFixed(1)}%</strong>
 								</div>
+							)}
+							{state.cacheLastTurn && (
+								<>
+									<div className="session-status-details-row">
+										<span>{t("app.cacheLastTurnHit")}</span>
+										<strong>
+											{state.cacheLastTurn.hitPercent != null
+												? `${state.cacheLastTurn.hitPercent.toFixed(1)}%`
+												: "-"}
+										</strong>
+									</div>
+									{state.cacheLastTurn.reason && (
+										<div className="session-status-details-row">
+											<span>{t("app.cacheMissReason")}</span>
+											<strong style={{ fontSize: "11px", color: "var(--color-text-tertiary)" }}>
+												{formatCacheMissReason(state.cacheLastTurn.reason)}
+											</strong>
+										</div>
+									)}
+								</>
 							)}
 							{state.cacheTotal != null && (
 								<div className="session-status-details-row">

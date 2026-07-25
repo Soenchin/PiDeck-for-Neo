@@ -841,6 +841,14 @@ export function SettingsModal(props: {
 										</>
 									)}
 								</div>
+								<SettingSwitch
+									title={t("settings.autoCheckUpdate")}
+									description={t("settings.autoCheckUpdateDesc")}
+									checked={props.settings.autoCheckUpdate}
+									onChange={(checked) =>
+										props.onChange({ autoCheckUpdate: checked })
+									}
+								/>
 								<div className="setting-row">
 										<div>
 											<strong>{t("settings.currentVersion")}</strong>

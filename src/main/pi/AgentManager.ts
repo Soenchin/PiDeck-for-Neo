@@ -8,6 +8,8 @@ import type {
 	AgentRuntimeState,
 	AgentTab,
 	AvailableModel,
+	CacheMissReason,
+	CacheTurnObservation,
 	ChatMessage,
 	CreateAgentInput,
 	ForkMessage,
@@ -114,6 +116,25 @@ export class AgentManager {
 	private readonly autoTitleWrites = new Map<string, string>();
 	/** 手动锁在 settings 落盘前立即生效，阻止已在飞行中的自动任务把它反写为 unlocked。 */
 	private readonly autoTitleLockedSessions = new Set<string>();
+
+	/**
+	 * 每个 agent 的最近一次 assistant message_end usage 观测，用于逐轮缓存诊断。
+	 * 只保留最后一轮，不累积历史；UI 需要时从 runtimeState.cacheLastTurn 读取。
+	 */
+	private readonly lastTurnUsage = new Map<string, CacheTurnObservation>();
+	/**
+	 * 每个 agent 当前的 provider/modelId 签名，用于检测模型切换导致的缓存链断裂。
+	 */
+	private readonly currentModelSignature = new Map<string, string>();
+	/**
+	 * 每个 agent 最后一次有缓存活动（cacheRead > 0 或 cacheWrite > 0）的时间戳（毫秒）。
+	 * 用于判断空闲超时后的首轮 miss 是否因 TTL 过期。
+	 */
+	private readonly lastCacheActivityAt = new Map<string, number>();
+	/**
+	 * 记录 compaction_end 刚结束的 agent，下一轮 assistant 标记为 compaction-rebuild。
+	 */
+	private readonly justCompacted = new Set<string>();
 
 	/**
 	 * 待处理的 Extension UI 请求。key 为 agentId，value 为 Map<requestId, { method, title, options }>。
@@ -1369,6 +1390,10 @@ export class AgentManager {
 		if (compactionEndedAt != null && !recentCompactionEnd) {
 			this.compactionEndedAt.delete(agentId);
 		}
+
+		// 附加最近一轮缓存观测
+		const cacheLastTurn = this.lastTurnUsage.get(agentId);
+
 		return {
 			modelName: model?.name ?? model?.id,
 			provider: model?.provider,
@@ -1394,6 +1419,7 @@ export class AgentManager {
 					? (cacheRead ?? 0) + (cacheWrite ?? 0)
 					: undefined,
 			cacheHitPercent,
+			cacheLastTurn,
 			cost: stats?.cost,
 		};
 	}
@@ -1432,6 +1458,106 @@ export class AgentManager {
 	private clampPercent(value: number | undefined) {
 		if (value == null || !Number.isFinite(value)) return undefined;
 		return Math.max(0, Math.min(100, value));
+	}
+
+	/**
+	 * 记录本轮 assistant message 的 usage，用于逐轮缓存诊断。
+	 * 仅在 message_end 事件中调用，确保 usage 完整且不重复记录流式片段。
+	 */
+	private recordTurnUsage(agentId: string, message: any) {
+		const usage = message?.usage;
+		if (!usage || typeof usage !== "object") return;
+
+		const input = this.pickNumber(usage.input, usage.inputTokens, usage.prompt, usage.promptTokens) ?? 0;
+		const cacheRead = this.pickNumber(usage.cacheRead, usage.cache?.read) ?? 0;
+		const cacheWrite = this.pickNumber(usage.cacheWrite, usage.cache?.write) ?? 0;
+		const promptTokens = input + cacheRead + cacheWrite;
+
+		if (promptTokens === 0) return;
+
+		const hitPercent = promptTokens > 0 ? (cacheRead / promptTokens) * 100 : undefined;
+		const observedAt = Date.now();
+
+		// 分类 miss 原因
+		const reason = this.classifyCacheMiss(agentId, message, cacheRead, cacheWrite, promptTokens);
+
+		const observation: CacheTurnObservation = {
+			inputTokens: input,
+			cacheRead,
+			cacheWrite,
+			promptTokens,
+			hitPercent,
+			observedAt,
+			reason,
+		};
+
+		this.lastTurnUsage.set(agentId, observation);
+
+		// 更新模型签名，用于下一轮检测模型切换
+		const provider = message.provider ?? "?";
+		const modelId = message.model ?? message.responseModel ?? "?";
+		this.currentModelSignature.set(agentId, `${provider}/${modelId}`);
+
+		// 更新缓存活动时间戳
+		if (cacheRead > 0 || cacheWrite > 0) {
+			this.lastCacheActivityAt.set(agentId, observedAt);
+		}
+
+		// 清除 justCompacted 标记（已消费）
+		this.justCompacted.delete(agentId);
+
+		// 立即推送更新后的 runtime state，让 UI 能看到最新观测
+		void this.emitRuntimeState(agentId);
+	}
+
+	/**
+	 * 分类缓存 miss 原因，用于前端展示诊断信息。
+	 * 按优先级从高到低检查各类边界条件。
+	 */
+	private classifyCacheMiss(
+		agentId: string,
+		message: any,
+		cacheRead: number,
+		cacheWrite: number,
+		promptTokens: number,
+	): CacheMissReason | undefined {
+		const hadCache = cacheRead > 0 || cacheWrite > 0;
+
+		// 如果本轮有缓存活动，不算 miss
+		if (hadCache) return undefined;
+
+		// 检查是否刚完成 compaction
+		if (this.justCompacted.has(agentId)) {
+			return "compaction-rebuild";
+		}
+
+		// 检查模型是否切换
+		const provider = message.provider ?? "?";
+		const modelId = message.model ?? message.responseModel ?? "?";
+		const currentSig = `${provider}/${modelId}`;
+		const prevSig = this.currentModelSignature.get(agentId);
+		if (prevSig && prevSig !== currentSig) {
+			return "model-changed";
+		}
+
+		// 检查是否空闲超时（默认 5 分钟 TTL）
+		const lastActivity = this.lastCacheActivityAt.get(agentId);
+		if (lastActivity && Date.now() - lastActivity > 5 * 60 * 1000) {
+			return "idle-timeout";
+		}
+
+		// 检查是否首轮（之前从未有过缓存活动）
+		if (!lastActivity) {
+			return "first-turn";
+		}
+
+		// 上一轮有缓存活动，本轮突然归零但不符合上述任何条件 → 缓存链断裂
+		if (lastActivity) {
+			return "cache-chain-reset";
+		}
+
+		// 兜底：provider 可能不支持或不回传缓存数据
+		return "provider-no-cache";
 	}
 
 	private trimHistoryMessages(rawMessages: unknown[], maxTurns = 20) {
@@ -2180,6 +2306,11 @@ export class AgentManager {
 		this.messages.delete(agentId);
 		// agent 关闭时自动关闭 RPC 日志记录
 		this.rpcLoggingAgents.delete(agentId);
+		// 清理缓存观测状态
+		this.lastTurnUsage.delete(agentId);
+		this.currentModelSignature.delete(agentId);
+		this.lastCacheActivityAt.delete(agentId);
+		this.justCompacted.delete(agentId);
 		process.stop();
 		this.emitState();
 	}
@@ -2210,6 +2341,11 @@ export class AgentManager {
 		}
 		this.agents.clear();
 		this.messages.clear();
+		// 清理缓存观测状态
+		this.lastTurnUsage.clear();
+		this.currentModelSignature.clear();
+		this.lastCacheActivityAt.clear();
+		this.justCompacted.clear();
 		this.emitState();
 	}
 
@@ -2297,6 +2433,8 @@ export class AgentManager {
 		if (typed.type === "compaction_end") {
 			this.rpcCompactingAgents.delete(agentId);
 			this.markCompactionEnded(agentId);
+			// 标记压缩刚完成，下一轮 assistant 会被归类为 compaction-rebuild
+			this.justCompacted.add(agentId);
 			const isManualCompaction = typed.reason === "manual";
 			if (runtime) {
 				// 自动 compaction 没有对应的手动 compact() 收口，因此需要在事件结束后刷新消息；
@@ -2441,6 +2579,8 @@ export class AgentManager {
 			this.activeAssistantMessageIds.has(agentId)
 		) {
 			this.upsertAssistantMessage(agentId, typed.message);
+			// 在 message_end 时记录本轮 usage，用于逐轮缓存诊断
+			this.recordTurnUsage(agentId, typed.message);
 			this.activeAssistantMessageIds.delete(agentId);
 			// 首轮标题依赖完整回答而非流式片段；调度到后台，不阻塞用户看到回答。
 			this.scheduleAutoTitleRefresh(agentId, "first-response");

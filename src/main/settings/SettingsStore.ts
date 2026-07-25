@@ -39,6 +39,7 @@ const defaultSettings: AppSettings = {
   piEnvironmentChecked: false,
   closeToTray: true,
   enableNotifications: true,
+  autoCheckUpdate: true,
   showThinking: readPiAgentShowThinking() ?? true,
   showDevTools: false,
   piProxyEnabled: false,
