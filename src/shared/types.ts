@@ -331,8 +331,6 @@ export type AppSettings = {
 	closeToTray: boolean;
 	/** 会话结束时发送系统通知 */
 	enableNotifications: boolean;
-	/** 是否自动检查应用更新（启动后 5 秒及每 6 小时） */
-	autoCheckUpdate: boolean;
 	/** 是否在会话中显示模型思考过程，默认开启 */
 	showThinking: boolean;
 	/** 是否开启开发者控制台（DevTools） */

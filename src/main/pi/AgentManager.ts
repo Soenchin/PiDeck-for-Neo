@@ -131,6 +131,8 @@ export class AgentManager {
 	 * 用于判断空闲超时后的首轮 miss 是否因 TTL 过期。
 	 */
 	private readonly lastCacheActivityAt = new Map<string, number>();
+	/** 已完成 usage 观测的 assistant 轮数，用于区分首轮与 provider 长期无缓存。 */
+	private readonly observedAssistantTurns = new Map<string, number>();
 	/**
 	 * 记录 compaction_end 刚结束的 agent，下一轮 assistant 标记为 compaction-rebuild。
 	 */
@@ -1478,6 +1480,10 @@ export class AgentManager {
 		const hitPercent = promptTokens > 0 ? (cacheRead / promptTokens) * 100 : undefined;
 		const observedAt = Date.now();
 
+		// 先递增轮次，再分类；否则第二轮仍会被误判为 first-turn。
+		const observedTurns = (this.observedAssistantTurns.get(agentId) ?? 0) + 1;
+		this.observedAssistantTurns.set(agentId, observedTurns);
+
 		// 分类 miss 原因
 		const reason = this.classifyCacheMiss(agentId, message, cacheRead, cacheWrite, promptTokens);
 
@@ -1546,18 +1552,19 @@ export class AgentManager {
 			return "idle-timeout";
 		}
 
-		// 检查是否首轮（之前从未有过缓存活动）
-		if (!lastActivity) {
+		const observedTurns = this.observedAssistantTurns.get(agentId) ?? 0;
+
+		// 只有真正的第一轮才叫 first-turn；之后仍完全没有任何缓存活动，
+		// 更可能是 provider 不支持缓存，或网关裁掉了 usage.cache* 字段。
+		if (!lastActivity && observedTurns === 1) {
 			return "first-turn";
 		}
-
-		// 上一轮有缓存活动，本轮突然归零但不符合上述任何条件 → 缓存链断裂
-		if (lastActivity) {
-			return "cache-chain-reset";
+		if (!lastActivity) {
+			return "provider-no-cache";
 		}
 
-		// 兜底：provider 可能不支持或不回传缓存数据
-		return "provider-no-cache";
+		// 上一轮有缓存活动，本轮突然归零但不符合上述边界条件 → 缓存链断裂
+		return "cache-chain-reset";
 	}
 
 	private trimHistoryMessages(rawMessages: unknown[], maxTurns = 20) {
@@ -2310,6 +2317,7 @@ export class AgentManager {
 		this.lastTurnUsage.delete(agentId);
 		this.currentModelSignature.delete(agentId);
 		this.lastCacheActivityAt.delete(agentId);
+		this.observedAssistantTurns.delete(agentId);
 		this.justCompacted.delete(agentId);
 		process.stop();
 		this.emitState();
@@ -2345,6 +2353,7 @@ export class AgentManager {
 		this.lastTurnUsage.clear();
 		this.currentModelSignature.clear();
 		this.lastCacheActivityAt.clear();
+		this.observedAssistantTurns.clear();
 		this.justCompacted.clear();
 		this.emitState();
 	}
@@ -2573,19 +2582,18 @@ export class AgentManager {
 			this.handleAssistantMessageEvent(agentId, typed);
 		}
 
-		if (
-			typed.type === "message_end" &&
-			typed.message?.role === "assistant" &&
-			this.activeAssistantMessageIds.has(agentId)
-		) {
-			this.upsertAssistantMessage(agentId, typed.message);
-			// 在 message_end 时记录本轮 usage，用于逐轮缓存诊断
+		if (typed.type === "message_end" && typed.message?.role === "assistant") {
+			// 不依赖 activeAssistantMessageIds：message_update.done 可能已先清理它。
+			// usage 观测必须以顶层 message_end 为准，否则测试版会静默漏记逐轮缓存。
 			this.recordTurnUsage(agentId, typed.message);
-			this.activeAssistantMessageIds.delete(agentId);
-			// 首轮标题依赖完整回答而非流式片段；调度到后台，不阻塞用户看到回答。
-			this.scheduleAutoTitleRefresh(agentId, "first-response");
-			// message_end 是本轮回答的最终状态，立即 flush 确保完整消息及时可见
-			this.flushMessageEmit(agentId);
+			if (this.activeAssistantMessageIds.has(agentId)) {
+				this.upsertAssistantMessage(agentId, typed.message);
+				this.activeAssistantMessageIds.delete(agentId);
+				// 首轮标题依赖完整回答而非流式片段；调度到后台，不阻塞用户看到回答。
+				this.scheduleAutoTitleRefresh(agentId, "first-response");
+				// message_end 是本轮回答的最终状态，立即 flush 确保完整消息及时可见
+				this.flushMessageEmit(agentId);
+			}
 		}
 
 		if (typed.type === "tool_execution_start") {
