@@ -11,9 +11,9 @@ import {
 	Tray,
 } from "electron";
 import { randomUUID } from "node:crypto";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
 import { PetSystem, type PetSystemDeps } from "./pet";
 import {
@@ -152,6 +152,35 @@ let webServiceManager: WebServiceManager;
 let terminalManager: TerminalSessionManager;
 let petSystem: PetSystem | null = null;
 let appLogger: AppLogger;
+
+/**
+ * 产物预览只读取已注册项目、当前 Agent 工作目录和 PiDeck 临时输入目录中的文件。
+ * renderer 传入的路径不能直接交给 fs，否则一个被篡改的 IPC 请求就能读取任意本机文件。
+ */
+async function resolvePreviewPath(inputPath: string): Promise<string> {
+	if (typeof inputPath !== "string" || !inputPath.trim()) {
+		throw new Error("Preview path is required");
+	}
+	const target = resolve(inputPath);
+	const allowedRoots = [
+		...projectStore.list().map((project) => project.path),
+		...agentManager.list().map((agent) => agent.cwd),
+		join(app.getPath("temp"), "pideck-input-images"),
+	];
+	const targetRealPath = await realpath(target);
+	for (const root of allowedRoots) {
+		try {
+			const rootRealPath = await realpath(root);
+			const relativePath = relative(rootRealPath, targetRealPath);
+			if (relativePath === "" || (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !isAbsolute(relativePath))) {
+				return targetRealPath;
+			}
+		} catch {
+			// 根目录可能已被删除；跳过它，继续检查其他允许根目录。
+		}
+	}
+	throw new Error("Preview path is outside an allowed workspace");
+}
 let rpcLogger: RpcLogger;
 let feishuBridge: FeishuBridge | null = null;
 
@@ -1273,6 +1302,29 @@ function registerIpc() {
 			}
 			throw error;
 		}
+	});
+
+	ipcMain.handle(ipcChannels.filesReadPreviewContent, async (_event, path: string) => {
+		const safePath = await resolvePreviewPath(path);
+		const fileInfo = await stat(safePath);
+		if (fileInfo.size > 2 * 1024 * 1024) {
+			throw new Error("File exceeds the 2MB preview limit");
+		}
+		return readFile(safePath, "utf8");
+	});
+
+	ipcMain.handle(ipcChannels.filesReadPreviewImage, async (_event, path: string) => {
+		const safePath = await resolvePreviewPath(path);
+		const extension = safePath.split(".").pop()?.toLowerCase();
+		const mimeByExtension: Record<string, string> = {
+			png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+			webp: "image/webp", bmp: "image/bmp", ico: "image/x-icon", svg: "image/svg+xml",
+		};
+		const mimeType = extension ? mimeByExtension[extension] : undefined;
+		if (!mimeType) throw new Error("Unsupported image format");
+		const data = await readFile(safePath);
+		if (data.byteLength > 20 * 1024 * 1024) throw new Error("Image exceeds the 20MB preview limit");
+		return { type: "image" as const, data: data.toString("base64"), mimeType };
 	});
 
 	ipcMain.handle(ipcChannels.filesReadImage, async (_event, path: string) => {

@@ -151,6 +151,10 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.filesShowInFolder, path) as Promise<void>,
 		readContent: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesReadContent, path) as Promise<string>,
+		readPreviewContent: (path: string) =>
+			ipcRenderer.invoke(ipcChannels.filesReadPreviewContent, path) as Promise<string>,
+		readPreviewImage: (path: string) =>
+			ipcRenderer.invoke(ipcChannels.filesReadPreviewImage, path) as Promise<ImageContent>,
 		readImage: (path: string) =>
 			ipcRenderer.invoke(ipcChannels.filesReadImage, path) as Promise<ImageContent>,
 		// Electron 32+ 不再暴露 File.path；仅将用户拖入的 File 转回本机路径，

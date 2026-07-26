@@ -114,6 +114,7 @@ import {
 import { BrowserPanel } from "./components/app/BrowserPanel";
 import {
   groupToolMessages,
+  getRunArtifactFiles,
   getMultiSelectImageCaptureIds,
   applySuggestion,
   buildOutline,
@@ -1258,6 +1259,16 @@ export function App() {
   const displayAgentsRef = useRef(displayAgents);
   displayAgentsRef.current = displayAgents;
   const activeAgent = displayAgents.find((agent) => agent.id === activeAgentId);
+  const readArtifactImage = useCallback(
+    (path: string) =>
+      api.files.readPreviewImage(resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path)),
+    [activeAgent?.cwd, activeProject?.path],
+  );
+  const readArtifactContent = useCallback(
+    (path: string) =>
+      api.files.readPreviewContent(resolveFileLinkPath(path, activeAgent?.cwd ?? activeProject?.path)),
+    [activeAgent?.cwd, activeProject?.path],
+  );
   const prompt = activeAgentId ? (promptByAgent[activeAgentId] ?? "") : "";
   const attachedImages = activeAgentId
     ? (attachedImagesByAgent[activeAgentId] ?? [])
@@ -5973,6 +5984,9 @@ ${goalTextRef.current}
                       agentRunning={isAgentBusy && index === renderedRuns.length - 1}
                       onOpenExternal={(url) => api.app.openExternal(url)}
                       onOpenFile={openFilePath}
+                      artifactFiles={getRunArtifactFiles(item)}
+                      onReadArtifactImage={readArtifactImage}
+                      onReadArtifactContent={readArtifactContent}
                       onDiffFile={diffFilePath}
                       onEditMessage={editMessage}
                       onDeleteMessage={deleteMessage}

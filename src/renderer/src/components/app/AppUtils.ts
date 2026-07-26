@@ -79,6 +79,39 @@ export type ToolGroupItem = {
 	messages: ChatMessage[];
 };
 
+export type SessionArtifactFile = {
+	path: string;
+	toolName: string;
+	status: string;
+};
+
+/** 从一轮工具调用中提取实际写入/编辑的文件；只把 Agent 真正触达的路径当产物候选。 */
+export function getRunArtifactFiles(run: AgentRunItem): SessionArtifactFile[] {
+	const byPath = new Map<string, SessionArtifactFile>();
+	for (const item of run.items) {
+		if (item.kind !== "tool-group") continue;
+		for (const message of item.messages) {
+			const toolName = typeof message.meta?.toolName === "string" ? message.meta.toolName : "";
+			if (!/write|edit|create|patch/i.test(toolName)) continue;
+			const status = String(message.meta?.status ?? "done").toLowerCase();
+			const isError = message.meta?.isError === true || status === "error" || status === "failed";
+			if (isError) continue;
+			let args: Record<string, unknown> | undefined;
+			if (typeof message.meta?.args === "string") {
+				try { args = JSON.parse(message.meta.args) as Record<string, unknown>; } catch { continue; }
+			} else if (message.meta?.args && typeof message.meta.args === "object") {
+				args = message.meta.args as Record<string, unknown>;
+			}
+			const path = ["filePath", "file_path", "path", "targetPath", "target_path", "outputPath", "output_path", "file", "fileName", "filename"]
+				.map((key) => args?.[key])
+				.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+			if (!path) continue;
+			byPath.set(path, { path, toolName, status });
+		}
+	}
+	return [...byPath.values()];
+}
+
 export type MessageItem = { kind: "message"; message: ChatMessage };
 
 export type ThinkingGroupItem = {

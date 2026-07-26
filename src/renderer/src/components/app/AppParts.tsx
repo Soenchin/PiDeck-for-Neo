@@ -132,6 +132,102 @@ export type SessionModifiedFile = {
 	content?: string;
 };
 
+type ArtifactPreviewKind = "image" | "html" | "unsupported";
+
+function artifactKind(filePath: string): ArtifactPreviewKind {
+	const extension = filePath.split(/[\\/.]/).pop()?.toLowerCase();
+	if (["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"].includes(extension ?? "")) return "image";
+	if (extension === "html" || extension === "htm") return "html";
+	return "unsupported";
+}
+
+function artifactName(filePath: string) {
+	return filePath.split(/[\\/]/).pop() || filePath;
+}
+
+/**
+ * 展示本轮 write/edit 产生的可视化文件。
+ * HTML 只放入 sandbox iframe，不允许脚本、表单或弹窗执行，避免把 Agent 生成的页面
+ * 当成应用内特权页面；无法内嵌的文件仍提供系统默认程序打开入口。
+ */
+export const ArtifactPreview = memo(function ArtifactPreview(props: {
+	files: Array<{ path: string }>;
+	onOpenFile: (path: string) => void;
+	onReadImage: (path: string) => Promise<ImageContent>;
+	onReadContent: (path: string) => Promise<string>;
+}) {
+	const [imageSources, setImageSources] = useState<Record<string, string>>({});
+	const [htmlSources, setHtmlSources] = useState<Record<string, string>>({});
+	const [failed, setFailed] = useState<Set<string>>(() => new Set());
+	const requestedFilesRef = useRef<Set<string>>(new Set());
+	// 产物候选来自本轮实际修改文件；支持预览的内嵌展示，其余仍保留“打开文件”入口。
+	const previewFiles = useMemo(() => props.files.slice(-3), [props.files]);
+
+	useEffect(() => {
+		let cancelled = false;
+		for (const file of previewFiles) {
+			const kind = artifactKind(file.path);
+			const requestKey = `${kind}:${file.path}`;
+			if (requestedFilesRef.current.has(requestKey)) continue;
+			if (kind === "image" && !imageSources[file.path]) {
+				requestedFilesRef.current.add(requestKey);
+				void props.onReadImage(file.path).then((image) => {
+					if (!cancelled) setImageSources((current) => ({
+						...current,
+						[file.path]: `data:${image.mimeType};base64,${image.data}`,
+					}));
+				}).catch(() => {
+					if (!cancelled) setFailed((current) => new Set(current).add(file.path));
+				});
+			}
+			if (kind === "html" && !htmlSources[file.path]) {
+				requestedFilesRef.current.add(requestKey);
+				void props.onReadContent(file.path).then((content) => {
+					if (!cancelled) setHtmlSources((current) => ({ ...current, [file.path]: content.slice(0, 2_000_000) }));
+				}).catch(() => {
+					if (!cancelled) setFailed((current) => new Set(current).add(file.path));
+				});
+			}
+		}
+		return () => { cancelled = true; };
+	}, [previewFiles, props.onReadContent, props.onReadImage, imageSources, htmlSources]);
+
+	if (previewFiles.length === 0) return null;
+	return (
+		<section className="artifact-preview" aria-label={t("artifact.title")}>
+			<div className="artifact-preview-header">
+				<span className="artifact-preview-title">{t("artifact.title")}</span>
+				<span className="artifact-preview-count">{previewFiles.length}</span>
+			</div>
+			<div className="artifact-preview-grid">
+				{previewFiles.map((file) => {
+					const kind = artifactKind(file.path);
+					const name = artifactName(file.path);
+					return (
+						<article className="artifact-preview-card" key={file.path}>
+							<div className="artifact-preview-card-header" title={file.path}>
+								<FileText size={14} aria-hidden="true" />
+								<span>{name}</span>
+							</div>
+							{kind === "image" && imageSources[file.path] && (
+								<img className="artifact-preview-image" src={imageSources[file.path]} alt={name} loading="lazy" />
+							)}
+							{kind === "html" && htmlSources[file.path] && (
+								<iframe className="artifact-preview-html" title={name} sandbox="" srcDoc={htmlSources[file.path]} />
+							)}
+							{kind === "unsupported" && <div className="artifact-preview-error">{t("artifact.previewUnavailable")}</div>}
+							{failed.has(file.path) && <div className="artifact-preview-error">{t("artifact.previewUnavailable")}</div>}
+							<div className="artifact-preview-actions">
+								<button type="button" onClick={() => props.onOpenFile(file.path)}>{t("artifact.openFile")}</button>
+							</div>
+						</article>
+					);
+				})}
+			</div>
+		</section>
+	);
+});
+
 type DiffFileHandler = (path: string, originalContent?: string, content?: string) => void;
 
 
@@ -2522,6 +2618,9 @@ export const AssistantText = memo(
  *  替代旧的 AgentRun + ChatBubble 助手分支 + RunActivity 三层结构。 */
 export const TurnRow = memo(function TurnRow(props: {
 	run: AgentRunItem;
+	artifactFiles?: Array<{ path: string }>;
+	onReadArtifactImage?: (path: string) => Promise<ImageContent>;
+	onReadArtifactContent?: (path: string) => Promise<string>;
 	onPreviewImage: (image: ImageContent) => void;
 	showThinking?: boolean;
 	isStreaming?: boolean;
@@ -2813,6 +2912,14 @@ export const TurnRow = memo(function TurnRow(props: {
 								isStreaming={props.isStreaming ?? false}
 							/>
 						) : null}
+						{isComplete && props.artifactFiles && props.onReadArtifactImage && props.onReadArtifactContent && (
+							<ArtifactPreview
+								files={props.artifactFiles}
+								onOpenFile={props.onOpenFile ?? (() => undefined)}
+								onReadImage={props.onReadArtifactImage}
+								onReadContent={props.onReadArtifactContent}
+							/>
+						)}
 					</Fragment>
 				)}
 				{/* 操作栏 */}

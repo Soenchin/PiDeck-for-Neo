@@ -23,6 +23,8 @@ export const ipcChannels = {
 	filesOpen: "files:open",
 	filesShowInFolder: "files:show-in-folder",
 	filesReadContent: "files:read-content",
+	filesReadPreviewContent: "files:read-preview-content",
+	filesReadPreviewImage: "files:read-preview-image",
 	filesReadImage: "files:read-image",
 	filesSaveClipboardImage: "files:save-clipboard-image",
 	filesWriteContent: "files:write-content",
