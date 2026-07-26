@@ -259,6 +259,10 @@ export const ipcChannels = {
 	petTease: "pet:tease",
 	/** 宠物窗 → 主进程：拖拽起止通知（开始时暂停巡游，避免松手后 tick 命中反向边界瞬移） */
 	petDragState: "pet:drag-state",
+	/** 宠物窗 → 主进程：原子开始拖拽并返回窗口起点，避免 Renderer 自己猜窗口坐标 */
+	petDragStart: "pet:drag-start",
+	/** 宠物窗 → 主进程：拖拽中的绝对目标位置；主进程只消费最新位置，丢弃过期增量 */
+	petMoveTo: "pet:move-to",
 	/** 宠物窗 → 主进程：React 已挂载且 IPC 监听器已注册，主进程可安全推送初始状态 */
 	petReady: "pet:ready",
 	/** 宠物窗 → 主进程：请求显示右键上下文菜单 */

@@ -155,6 +155,12 @@ export class PetWindow {
 			width: this.targetSize.width,
 			height: this.targetSize.height,
 		});
+	}
+
+	/** 拖拽结束时低频保存一次；巡游和拖拽移动本身不应每帧写盘。 */
+	saveCurrentPosition() {
+		if (!this.exists) return;
+		const [x, y] = this.win!.getPosition();
 		void savePos({ x, y });
 	}
 

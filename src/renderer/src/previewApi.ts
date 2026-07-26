@@ -739,6 +739,8 @@ export function createPreviewApi(): PiDesktopApi {
 			setEnabled: async () => undefined,
 			setId: async () => undefined,
 			moveWindow: async () => undefined,
+			startDrag: async () => ({ x: 0, y: 0, token: 0 }),
+			moveTo: () => undefined,
 			moveBy: async () => undefined,
 			ready: () => undefined,
 			contextMenu: async () => undefined,

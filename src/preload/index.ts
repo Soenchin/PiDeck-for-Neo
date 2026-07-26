@@ -778,10 +778,16 @@ const api = {
 		/** 双击宠物触发逗弄：主进程注入一次 jumping 后恢复真实聚合态 */
 		tease: () =>
 			ipcRenderer.invoke(ipcChannels.petTease) as Promise<void>,
-		/** 通知主进程拖拽起止：开始时暂停巡游，结束时若处于 idle 则恢复巡游 */
+		/** 原子开始拖拽：暂停巡游，并返回主进程确认的窗口起点与会话令牌 */
+		startDrag: () =>
+			ipcRenderer.invoke(ipcChannels.petDragStart) as Promise<{ x: number; y: number; token: number }>,
+		/** 通知主进程拖拽结束：让迟到的位置消息失效，并在 idle 时恢复巡游 */
 		setDragging: (dragging: boolean) =>
 			ipcRenderer.invoke(ipcChannels.petDragState, dragging) as Promise<void>,
-		/** 拖拽相对位移（连续 screenX 差值），主进程读取当前窗口位置 + 增量 */
+		/** 拖拽绝对目标位置：单向 IPC，主进程按会话令牌丢弃过期消息 */
+		moveTo: (target: { x: number; y: number; token: number }) =>
+			ipcRenderer.send(ipcChannels.petMoveTo, target),
+		/** 兼容旧调用方的相对位移接口 */
 		moveBy: (delta: { dx: number; dy: number }) =>
 			ipcRenderer.invoke(ipcChannels.petMoveBy, delta) as Promise<void>,
 		/** 通知主进程：宠物窗 React 已挂载，IPC 监听器已注册，可以安全推送初始状态 */

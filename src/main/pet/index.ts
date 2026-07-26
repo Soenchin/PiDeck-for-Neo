@@ -21,6 +21,9 @@ export class PetSystem {
 	readonly patrol: PetPatrol;
 	private bridge: PetStateBridge;
 	private registered = false;
+	/** 拖拽会话令牌：拒绝结束拖拽后仍在 IPC 队列里的旧位置。 */
+	private dragSession = 0;
+	private dragging = false;
 
 	constructor(private readonly deps: PetSystemDeps) {
 		this.patrol = new PetPatrol(
@@ -82,8 +85,22 @@ export class PetSystem {
 		ipcMain.handle(C.petMoveBy, async (_e, delta: { dx: number; dy: number }) => {
 			if (!this.petWindow.exists) return;
 			const [x, y] = this.petWindow.window!.getPosition();
-			// ipcMain.handle 对同一通道是串行执行的，setPosition 是同步的，不会产生增量竞争
 			this.petWindow.moveTo(x + delta.dx, y + delta.dy);
+		});
+		// 拖拽必须使用「起点窗口坐标 + 当前鼠标绝对坐标」，不能连续读取窗口位置叠加增量。
+		// 透明窗口移动存在异步合成延迟，旧算法会把多个 dx/dy 叠到同一个旧坐标上，
+		// 于是出现反向、飞远和松手后回弹。会话令牌还会拦截拖拽结束后的迟到消息。
+		ipcMain.handle(C.petDragStart, () => {
+			this.dragSession += 1;
+			this.dragging = true;
+			this.bridge.onDragState(true);
+			const [x, y] = this.petWindow.window?.getPosition() ?? [0, 0];
+			return { x, y, token: this.dragSession };
+		});
+		ipcMain.on(C.petMoveTo, (_e, target: { x: number; y: number; token: number }) => {
+			if (!this.dragging || target.token !== this.dragSession || !this.petWindow.exists) return;
+			if (!Number.isFinite(target.x) || !Number.isFinite(target.y)) return;
+			this.petWindow.moveTo(target.x, target.y);
 		});
 		ipcMain.handle(C.petPreviewMode, async (_e, mode: string) => {
 			const win = this.petWindow.window;
@@ -124,8 +141,13 @@ export class PetSystem {
 		// 拖拽起止：开始时停巡游；结束时先纠正透明窗可能产生的尺寸漂移，再按 idle 状态恢复巡游。
 		ipcMain.handle(C.petDragState, (_e, dragging: boolean) => {
 			const isDragging = !!dragging;
+			this.dragging = isDragging;
+			if (!isDragging) this.dragSession += 1; // 让迟到的 move-to 失效
 			this.bridge.onDragState(isDragging);
-			if (!isDragging) this.petWindow.ensureTargetSize();
+			if (!isDragging) {
+				this.petWindow.ensureTargetSize();
+				this.petWindow.saveCurrentPosition();
+			}
 		});
 
 		// 宠物窗就绪信号：React 已挂载且 IPC 监听器已注册，安全推送初始数据
