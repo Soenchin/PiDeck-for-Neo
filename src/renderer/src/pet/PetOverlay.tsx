@@ -51,7 +51,11 @@ export function PetOverlay({ sprite, state, dragging, notification }: Props) {
 
 		syncCanvasSize();
 
-		const row = MODE_ROW[mode] ?? 0;
+		const row = sprite.patrolDirectionsReversed && mode === "running-right"
+			? MODE_ROW["running-left"]
+			: sprite.patrolDirectionsReversed && mode === "running-left"
+				? MODE_ROW["running-right"]
+				: MODE_ROW[mode] ?? 0;
 		const totalFrames = MODE_FRAMES[mode] ?? 8;
 		const fps = mode === "idle" ? IDLE_FPS : DEFAULT_FPS;
 		const frameMs = 1000 / fps;

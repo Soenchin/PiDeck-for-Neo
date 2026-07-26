@@ -463,6 +463,8 @@ export type PetManifest = {
 	source: "builtin" | "petdex";
 	/** 渲染层可加载的 spritesheet URL（内置走打包资源，petdex 走 file://） */
 	spritesheetUrl: string;
+	/** 少数旧宠物包将左右巡游行反向排列；仅交换 running-left/right 的动画行。 */
+	patrolDirectionsReversed?: boolean;
 };
 
 

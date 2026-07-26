@@ -38,6 +38,8 @@ export type SpriteSheet = {
 	cellW: number;
 	/** 单格高 */
 	cellH: number;
+	/** 当前宠物包是否把左右巡游行反向排列。 */
+	patrolDirectionsReversed: boolean;
 };
 
 /** 加载 spritesheet 图片，解析失败时 reject（渲染层据此降级绘制） */
@@ -56,5 +58,6 @@ export async function loadSpriteSheet(manifest: PetManifest): Promise<SpriteShee
 		rows: GRID_ROWS,
 		cellW: CELL_W,
 		cellH: CELL_H,
+		patrolDirectionsReversed: manifest.patrolDirectionsReversed === true,
 	};
 }

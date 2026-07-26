@@ -53,7 +53,14 @@ async function fileExists(p: string): Promise<boolean> {
 	try { return (await stat(p)).isFile(); } catch { return false; }
 }
 
-type PetDexManifest = { id: string; displayName?: string; description?: string; spritesheetPath: string };
+type PetDexManifest = {
+	id: string;
+	displayName?: string;
+	description?: string;
+	spritesheetPath: string;
+	/** Neon 等旧包可能把第 1/2 巡游行按相反方向排列。 */
+	patrolDirectionsReversed?: boolean;
+};
 
 export class PetPackageManager {
 	// 内置宠物包：通过 extraResources 分发，不经过 asar。
@@ -90,7 +97,16 @@ export class PetPackageManager {
 				if (!(await fileExists(spriteAbs))) continue;
 				if (byId.has(json.id)) continue; // 内置优先
 				const url = await toDataUrl(spriteAbs);
-				if (url) byId.set(json.id, { id: json.id, displayName: json.displayName ?? json.id, description: json.description, source: "petdex", spritesheetUrl: url });
+				if (url) byId.set(json.id, {
+					id: json.id,
+					displayName: json.displayName ?? json.id,
+					description: json.description,
+					source: "petdex",
+					spritesheetUrl: url,
+					// 现有 Neon 包的 manifest 尚未声明该兼容字段；按 id 兜底，
+					// 这样用户无需手改私有资源，其他社区包仍保持标准方向。
+					patrolDirectionsReversed: json.patrolDirectionsReversed ?? json.id === "neon",
+				});
 			} catch { /* 单个包失败不影响整体 */ }
 		}
 
