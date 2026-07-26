@@ -64,6 +64,10 @@ import {
   getProjectAgentSessionDisplay,
   isSameSessionPath,
 } from "./agentListDisplay";
+import {
+  getPendingQuestionAgentIds,
+  getSidebarAgentStatus,
+} from "./agentQuestionStatus";
 import { resolveLocale, setI18nLocale, t } from "./i18n";
 import {
   pruneTerminalDockState,
@@ -1255,6 +1259,11 @@ export function App() {
       ),
     ];
   }, [agents, pendingAgents]);
+  // 提问请求按 agentId 独立聚合；切到其他会话时也必须保留 A 会话的“小问题”状态。
+  const pendingQuestionAgentIds = useMemo(
+    () => getPendingQuestionAgentIds(activeUiRequest),
+    [activeUiRequest],
+  );
   // displayAgents 的 ref，供只挂载一次的 IPC 监听器读取最新 Agent 列表，避免闭包陈旧
   const displayAgentsRef = useRef(displayAgents);
   displayAgentsRef.current = displayAgents;
@@ -5494,6 +5503,10 @@ ${goalTextRef.current}
                       const agent = child.agent;
                       const isActiveAgent = agent.id === activeAgentId;
                       const hasUnread = unreadAgentIds.has(agent.id);
+                      const sidebarStatus = getSidebarAgentStatus(
+                        agent.status,
+                        pendingQuestionAgentIds.has(agent.id),
+                      );
                       return (
                         <Fragment key={child.key}>
                         <button
@@ -5524,9 +5537,9 @@ ${goalTextRef.current}
                           <span className="agent-node-marker" aria-hidden="true" />
                           <div className="conversation-body">
                             <div className="conversation-title">
-                              {agent.status && (
-                                <span className={`agent-status-indicator status-${agent.status}`}>
-                                  {t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}
+                              {sidebarStatus && (
+                                <span className={`agent-status-indicator status-${sidebarStatus}`}>
+                                  {t(`app.status${sidebarStatus.charAt(0).toUpperCase() + sidebarStatus.slice(1)}` as any) || sidebarStatus}
                                 </span>
                               )}
                               <strong>{agent.title}</strong>
@@ -5724,6 +5737,10 @@ ${goalTextRef.current}
                           </button>
                           {childAgents.map((agent) => {
                             const hasUnread = unreadAgentIds.has(agent.id);
+                            const sidebarStatus = getSidebarAgentStatus(
+                              agent.status,
+                              pendingQuestionAgentIds.has(agent.id),
+                            );
                             return (
                             <button
                               key={agent.id}
@@ -5749,9 +5766,9 @@ ${goalTextRef.current}
                               <span className="agent-node-marker" aria-hidden="true" />
                               <div className="conversation-body">
                                 <div className="conversation-title">
-                                  {agent.status && (
-                                    <span className={`agent-status-indicator status-${agent.status}`}>
-                                      {t(`app.status${agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}` as any) || agent.status}
+                                  {sidebarStatus && (
+                                    <span className={`agent-status-indicator status-${sidebarStatus}`}>
+                                      {t(`app.status${sidebarStatus.charAt(0).toUpperCase() + sidebarStatus.slice(1)}` as any) || sidebarStatus}
                                     </span>
                                   )}
                                   <strong>{agent.title}</strong>

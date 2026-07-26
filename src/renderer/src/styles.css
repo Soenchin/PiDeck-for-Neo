@@ -9779,6 +9779,21 @@ body.is-composer-resizing .composer-resize-handle::after {
   );
 }
 
+/* Agent 等待主人回答时，用稳定的提示色提醒侧栏，不闪烁、不抢焦点。 */
+.agent-status-indicator.status-question {
+  color: var(--color-warning);
+  background: color-mix(
+    in srgb,
+    var(--color-warning) 14%,
+    var(--color-bg-panel)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--color-warning) 34%,
+    var(--color-border-subtle)
+  );
+}
+
 /* 后台会话已完成但尚未点开查看时，标题右侧的未读绿点。 */
 .agent-unread-dot {
   width: 8px;
