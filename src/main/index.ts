@@ -104,6 +104,12 @@ import { WebServiceManager } from "./web/WebServiceManager";
 import { preparePreloadPath } from "./preloadPath";
 import { AppLogger } from "./logging/AppLogger";
 import { RpcLogger } from "./logging/RpcLogger";
+import { RoomManager } from "./room/RoomManager";
+import type {
+	RoomSendInput,
+	RoomSetModelInput,
+	RoomStopInput,
+} from "../shared/room";
 import {
 	detectExternalEditors,
 	listConfiguredExternalEditors,
@@ -150,6 +156,9 @@ let extensionManager: ExtensionManager;
 let projectResourceManager: ProjectResourceManager;
 let webServiceManager: WebServiceManager;
 let terminalManager: TerminalSessionManager;
+let roomManager: RoomManager;
+/** ProjectStore 仍保持异步加载，但房间 provisioning 必须等待它完成，避免空内存覆盖 projects.json。 */
+let projectStoreReady: Promise<void>;
 let petSystem: PetSystem | null = null;
 let appLogger: AppLogger;
 
@@ -2509,6 +2518,40 @@ function registerIpc() {
 			return result;
 		},
 	);
+	// ===== Neo × ROCKET 双 Agent 房间 =====
+	ipcMain.handle(ipcChannels.roomGetState, async () => {
+		await projectStoreReady;
+		return roomManager.getState();
+	});
+	ipcMain.handle(ipcChannels.roomGetMessages, async () => {
+		await projectStoreReady;
+		return roomManager.getMessages();
+	});
+	ipcMain.handle(ipcChannels.roomSend, async (_event, input: RoomSendInput) => {
+		await projectStoreReady;
+		return roomManager.send(input);
+	});
+	ipcMain.handle(ipcChannels.roomAbort, async (_event, input: RoomStopInput) => {
+		await projectStoreReady;
+		return roomManager.abort(input ?? {});
+	});
+	ipcMain.handle(ipcChannels.roomStop, async (_event, input: RoomStopInput) => {
+		await projectStoreReady;
+		return roomManager.stop(input ?? {});
+	});
+	ipcMain.handle(ipcChannels.roomClear, async () => {
+		await projectStoreReady;
+		return roomManager.clearTimeline();
+	});
+	ipcMain.handle(ipcChannels.roomNewTable, async () => {
+		await projectStoreReady;
+		return roomManager.newTable();
+	});
+	ipcMain.handle(ipcChannels.roomSetModel, async (_event, input: RoomSetModelInput) => {
+		await projectStoreReady;
+		return roomManager.setModel(input);
+	});
+
 	ipcMain.handle(ipcChannels.agentsStop, async (_event, agentId: string) => {
 		terminalManager.closeAgent(agentId);
 		await agentManager.stop(agentId);
@@ -2867,6 +2910,8 @@ async function detectExternalEditorsOnFirstLaunch() {
 
 app.whenReady().then(async () => {
 	projectStore = new ProjectStore();
+	// 立即启动项目列表加载，确保 renderer 有机会发房间 IPC 之前 projectStoreReady 已指向真实任务。
+	projectStoreReady = projectStore.load().then(() => undefined);
 	fileSystemService = new FileSystemService();
 	sessionScanner = new SessionScanner();
 	codexSessionImporter = new CodexSessionImporter();
@@ -2915,6 +2960,18 @@ app.whenReady().then(async () => {
 		(agentId) => agentManager.getCwd(agentId),
 		(channel, payload) => mainWindow?.webContents.send(channel, payload),
 	);
+	// Neo × ROCKET 双 Agent 房间编排器：独立于 PiRpcClient，建立在 AgentManager 之上。
+	roomManager = new RoomManager(
+		agentManager,
+		projectStore,
+		configManager,
+		appLogger,
+		() => mainWindow,
+	);
+	// Agent 状态变更时同步刷新两人 status，用于房间面板展示 near-real-time 状态。
+	agentManager.addStateListener((tabs) => roomManager.refreshAgentStatuses(tabs));
+	// 项目加载完成后再迁移/回填房间隐藏项目；所有 room IPC 等待同一条 Promise。
+	projectStoreReady = projectStoreReady.then(() => roomManager.initOnStartup());
 
 	await settingsStore.load();
 
@@ -2999,12 +3056,13 @@ app.whenReady().then(async () => {
 	});
 
 	// 项目列表可能位于杀软/同步盘较慢的 userData；窗口先显示，随后异步加载，避免 packaged app 打开时白屏等待。
-	void projectStore
-		.load()
-		.then(() =>
-			mainWindow?.webContents.send("projects:changed", projectStore.list()),
-		)
-		.catch(() => undefined);
+	void projectStoreReady
+		.then(() => {
+			mainWindow?.webContents.send("projects:changed", projectStore.list());
+		})
+		.catch((error) => {
+			void appLogger.error("project", "Project store load failed", error);
+		});
 
 	// 启动后异步检查 RPC 超时时间，如果小于 600 秒则自动修正为 600 秒
 	// 避免用户配置的过小超时（如 30 秒）导致启动或命令执行频繁超时

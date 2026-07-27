@@ -73,6 +73,14 @@ import type {
 	TerminalTab,
 	ThinkingUpdate,
 } from "../shared/types";
+import type {
+	RoomClearResult,
+	RoomMessagesSnapshot,
+	RoomSendInput,
+	RoomSetModelInput,
+	RoomStopInput,
+	RoomState,
+} from "../shared/room";
 
 const api = {
 	editors: {
@@ -906,6 +914,27 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.scratchPadSave, draftPath, content, cursorPosition) as Promise<void>,
 		export: (draftPath: string) =>
 			ipcRenderer.invoke(ipcChannels.scratchPadExport, draftPath) as Promise<boolean>,
+	},
+	// ===== Neo × ROCKET 双 Agent 房间 =====
+	room: {
+		getState: () =>
+			ipcRenderer.invoke(ipcChannels.roomGetState) as Promise<RoomState>,
+		getMessages: () =>
+			ipcRenderer.invoke(ipcChannels.roomGetMessages) as Promise<RoomMessagesSnapshot>,
+		send: (input: RoomSendInput) =>
+			ipcRenderer.invoke(ipcChannels.roomSend, input) as Promise<void>,
+		abort: (input?: RoomStopInput) =>
+			ipcRenderer.invoke(ipcChannels.roomAbort, input ?? {}) as Promise<void>,
+		stop: (input?: RoomStopInput) =>
+			ipcRenderer.invoke(ipcChannels.roomStop, input ?? {}) as Promise<void>,
+		clear: () =>
+			ipcRenderer.invoke(ipcChannels.roomClear) as Promise<RoomClearResult>,
+		newTable: () =>
+			ipcRenderer.invoke(ipcChannels.roomNewTable) as Promise<RoomState>,
+		setModel: (input: RoomSetModelInput) =>
+			ipcRenderer.invoke(ipcChannels.roomSetModel, input) as Promise<void>,
+		onState: (callback: (state: RoomState) => void) =>
+			subscribe(ipcChannels.roomState, callback),
 	},
 };
 

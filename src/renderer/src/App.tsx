@@ -50,6 +50,8 @@ import {
 import { subscribeToNotice, showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
 import { createBrowserApi } from "./browserApi";
+import { RoomPanel } from "./components/room/RoomPanel";
+import { RoomEntryButton } from "./components/room/RoomEntryButton";
 const ConfigModal = lazy(() => import("./ConfigModal").then((m) => ({ default: m.ConfigModal })));
 import { TrustConfirmModal } from "./components/app/TrustConfirmModal";
 import { TerminalDock } from "./components/terminal/TerminalDock";
@@ -559,6 +561,26 @@ export function App() {
   const activeProjectIdRef = useRef<string | undefined>(activeProjectId);
   activeProjectIdRef.current = activeProjectId;
   const [activeAgentId, setActiveAgentId] = useState<string>();
+  // 主视图模式：null=普通项目/会话，"room"=Neo × ROCKET 双 Agent 房间。
+  // 房间入口在搜索框下方、会话列表上方单独占一个常驻条目；选中后中间区域改渲染 RoomPanel。
+  const [view, setView] = useState<null | "room">(null);
+  const enterRoom = useCallback(() => {
+    setActiveProjectId(undefined);
+    setActiveAgentId(undefined);
+    setView("room");
+  }, []);
+  const enterAgentView = useCallback(() => {
+    setView(null);
+  }, []);
+  // 镜像 view 供启动期 effect 判定，避免在房间内被自动选首个项目。effect不依赖重渲染。
+  const viewRef = useRef<null | "room">(null);
+  viewRef.current = view;
+  // 任何显式位置/会话/Agent 选择都退出房间视图回到普通工作台。
+  const selectProject = useCallback((projectId: string, agentId?: string) => {
+    setView(null);
+    setActiveProjectId(projectId);
+    setActiveAgentId(agentId);
+  }, []);
   // 切换 agent（新会话/恢复会话）时刷新设置，使 pi agent 的 hideThinkingBlock 立即生效
   useEffect(() => {
     if (activeAgentId) {
@@ -1758,6 +1780,8 @@ export function App() {
   const filteredProjects = useMemo(
     () =>
       projects.filter((project) => {
+        // 隐藏项目（双 Agent 房间专用）不出现在会话列表中
+        if (project.hidden) return false;
         // worktree 子项目不显示在主列表中，只在父项目下以子项展示
         if (project.worktreeParentId) return false;
         const projectSessions = sessionsByProject[project.id] ?? [];
@@ -1799,7 +1823,7 @@ export function App() {
         if (bootCancelled) return;
         setProjects(nextProjects);
         setAgents(nextAgents);
-        if (nextProjects.length > 0) {
+        if (viewRef.current !== "room" && nextProjects.length > 0) {
           setActiveProjectId((current) => current ?? nextProjects[0].id);
         }
         // worktree 刷新不阻塞开屏退场，挂后台
@@ -1850,7 +1874,7 @@ export function App() {
 
     const offProjects = api.projects.onChanged((next) => {
       setProjects(next);
-      if (!activeProjectId && next.length > 0) setActiveProjectId(next[0].id);
+           if (viewRef.current !== "room" && !activeProjectId && next.length > 0) setActiveProjectId(next[0].id);
     });
     const offState = api.agents.onState((nextAgents) => {
       const previousPendingAgents = pendingAgentsRef.current;
@@ -2125,8 +2149,7 @@ export function App() {
     const off = api.agents.onFocusTarget((target) => {
       const agent = displayAgentsRef.current.find((a) => a.id === target.agentId);
       if (!agent) return;
-      setActiveProjectId(agent.projectId);
-      setActiveAgentId(agent.id);
+      selectProject(agent.projectId, agent.id);
     });
     return off;
   }, []);
@@ -2928,7 +2951,7 @@ export function App() {
   async function refreshProjects() {
     const next = await api.projects.list();
     setProjects(next);
-    if (!activeProjectId && next.length > 0) setActiveProjectId(next[0].id);
+      if (viewRef.current !== "room" && !activeProjectId && next.length > 0) setActiveProjectId(next[0].id);
     // 启动时刷新所有 worktree 项目的分支列表
     for (const p of next) {
       if (p.worktreeEnabled) {
@@ -3617,8 +3640,7 @@ export function App() {
     const project = await api.projects.add();
     if (!project) return;
     await refreshProjects();
-    setActiveProjectId(project.id);
-    setActiveAgentId(undefined);
+    selectProject(project.id);
   }
 
   function updateAfterProjectRemoved(
@@ -3662,8 +3684,7 @@ export function App() {
         )
       : undefined;
     if (existing) {
-      setActiveProjectId(existing.projectId);
-      setActiveAgentId(existing.id);
+      selectProject(existing.projectId, existing.id);
       setDrawer(null);
       setAutoScroll(true);
       autoScrollRef.current = true;
@@ -3681,8 +3702,7 @@ export function App() {
     };
     pendingAgentsRef.current = [...pendingAgentsRef.current, pendingTab];
     setPendingAgents(pendingAgentsRef.current);
-    setActiveProjectId(projectId);
-    setActiveAgentId(pendingTab.id);
+    selectProject(projectId, pendingTab.id);
     setActiveAgentByProject((current) => ({
       ...current,
       [projectId]: pendingTab.id,
@@ -5208,6 +5228,9 @@ ${goalTextRef.current}
           </button>
         </div>
 
+        {/* Neo × ROCKET 双 Agent 房间入口：常驻在搜索框与会话列表之间 */}
+        <RoomEntryButton active={view === "room"} onClick={enterRoom} />
+
         <div className="conversation-list">
           {filteredProjects.map((project) => {
             const projectIsChat = isChatProject(project);
@@ -5306,8 +5329,7 @@ ${goalTextRef.current}
                       }
                     }
 
-                    setActiveProjectId(project.id);
-                    setActiveAgentId(undefined);
+                    selectProject(project.id);
                   }}
                 >
                   <span
@@ -5416,8 +5438,7 @@ ${goalTextRef.current}
                       // 点击主工作区 header 等同于选中父项目本身：激活主项目并加载其会话，
                       // 避免与点击父项目行产生行为分歧导致用户迷惑。
                       onClick={() => {
-                        setActiveProjectId(project.id);
-                        setActiveAgentId(undefined);
+                        selectProject(project.id);
                         if (!projectIsChat && !sessionsByProject[project.id]?.length) {
                           void refreshProjectSessions(project.id).catch(() => undefined);
                         }
@@ -5530,8 +5551,7 @@ ${goalTextRef.current}
                             });
                           }}
                           onClick={() => {
-                            setActiveProjectId(project.id);
-                            setActiveAgentId(agent.id);
+                            selectProject(project.id, agent.id);
                           }}
                         >
                           <span className="agent-node-marker" aria-hidden="true" />
@@ -5684,8 +5704,7 @@ ${goalTextRef.current}
                             className={`conversation worktree-row${isActive ? " active" : ""}${removingWorktreePaths.has(wt.path) ? " worktree-removing" : ""}`}
                             onClick={() => {
                               if (childProject) {
-                                setActiveProjectId(childProject.id);
-                                setActiveAgentId(undefined);
+                                selectProject(childProject.id);
                                 if (!sessionsByProject[childProject.id]?.length) {
                                   void refreshProjectSessions(childProject.id).catch(() => undefined);
                                 }
@@ -5759,8 +5778,7 @@ ${goalTextRef.current}
                                 });
                               }}
                               onClick={() => {
-                                setActiveProjectId(agent.projectId);
-                                setActiveAgentId(agent.id);
+                                selectProject(agent.projectId, agent.id);
                               }}
                             >
                               <span className="agent-node-marker" aria-hidden="true" />
@@ -5885,6 +5903,10 @@ ${goalTextRef.current}
             : undefined),
         } as React.CSSProperties}
       >
+        {view === "room" ? (
+          <RoomPanel />
+        ) : (
+          <>
         <header ref={chatHeaderRef} className={`chat-header${activeAgent ? "" : " splash-hidden"}`}>
           <div className="chat-title-block">
             <div className="chat-title-row">
@@ -6465,6 +6487,8 @@ ${goalTextRef.current}
             }
             onClose={() => setTerminalOpenForAgent(activeAgentId, false)}
           />
+        )}
+          </>
         )}
       </main>
 

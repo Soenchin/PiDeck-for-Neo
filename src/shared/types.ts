@@ -6,6 +6,8 @@ export type Project = {
 	pinned?: boolean;
 	sortOrder?: number;
 	kind?: "chat";
+	/** 隐藏项目：不在左侧会话列表展示，仅供内部功能（如双 Agent 房间）挂载独立 Agent 使用。 */
+	hidden?: boolean;
 	/** 是否启用 git worktree 工作区模式，开启后侧栏显示分支子项 */
 	worktreeEnabled?: boolean;
 	/** 如果是 worktree 子项目，指向父项目的 id */
@@ -876,6 +878,15 @@ export type CreateAgentInput = {
 	projectId: string;
 	title?: string;
 	sessionPath?: string;
+	/**
+	 * 隔离启动选项。仅用于需要与全局 Neo 环境彻底隔离的 Agent（如 ROCKET）。
+	 * - isolatedAgentDir：重定向 pi 的 agentDir（PI_CODING_AGENT_DIR），
+	 *   阻断全局 APPEND_SYSTEM.md 人设与全局 extensions（Houkai 等）。
+	 *   该目录需预先置好 models.json / auth.json，否则无法解析 provider。
+	 * - noExtensions：额外加 --no-extensions，兜底防止隔离 agentDir 仍被 discovery 扫到扩展。
+	 */
+	isolatedAgentDir?: string;
+	noExtensions?: boolean;
 };
 
 export type ForkMessage = {

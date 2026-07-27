@@ -172,6 +172,35 @@ export class ProjectStore {
     return Math.max(...this.projects.map((project) => this.projectSortOrder(project))) + 1;
   }
 
+  /**
+   * 确保一个隐藏项目存在，仅供内部功能（如 Neo × ROCKET 双 Agent 房间）挂载独立 Agent。
+   * 按 path 去重：已存在则补上 hidden 并落盘；不存在则新建并打 hidden:true。
+   * 隐藏项目不会出现在左侧会话列表中（渲染层过滤 hidden）。 */
+  async ensureHiddenProject(path: string, name?: string): Promise<Project> {
+    const normalized = this.normalizeProjectPath(path);
+    const existing = this.projects.find((project) => this.sameProjectPath(project.path, normalized));
+    if (existing) {
+      // 用户原本已经添加的普通项目必须保持可见；房间只复用它，不能擅自隐藏。
+      // 兼容早期房间实现：若它曾把一个非内部命名的既有项目写成 hidden，自动恢复可见。
+      if (existing.hidden && name && existing.name !== name) {
+        existing.hidden = false;
+        await this.save();
+      }
+      return existing;
+    }
+    const project: Project = {
+      id: randomUUID(),
+      name: name ?? basename(normalized) ?? normalized,
+      path: normalized,
+      lastOpenedAt: Date.now(),
+      sortOrder: this.nextSortOrder(),
+      hidden: true,
+    };
+    this.projects.push(project);
+    await this.save();
+    return project;
+  }
+
   private projectSortOrder(project: Project) {
     return typeof project.sortOrder === "number" && !Number.isNaN(project.sortOrder)
       ? project.sortOrder

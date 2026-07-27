@@ -72,7 +72,14 @@ export class PiProcess extends EventEmitter {
   start(
     sessionPath?: string,
     trustOverride?: "approve" | "no-approve",
-    options?: { ephemeral?: boolean; model?: { provider: string; id: string } },
+    options?: {
+      ephemeral?: boolean;
+      model?: { provider: string; id: string };
+      /** 重定向 pi agentDir（PI_CODING_AGENT_DIR），用于隔离全局人设与扩展。 */
+      agentDir?: string;
+      /** 额外追加 --no-extensions，兜底阻断扩展发现。 */
+      noExtensions?: boolean;
+    },
   ) {
     if (this.proc) return this.rpc!;
 
@@ -84,6 +91,9 @@ export class PiProcess extends EventEmitter {
       // 它是独立的一次性摘要任务，完成后由调用方立刻 stop()。
       args.push("--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files");
     }
+    // 隔离启动：--no-extensions 兜底阻断扩展发现，agentDir 重定向在下方 env 注入处理。
+    // ephemeral 已自带 --no-extensions，这里不重复添加。
+    if (options?.noExtensions && !options?.ephemeral) args.push("--no-extensions");
     if (options?.model) args.push("--provider", options.model.provider, "--model", options.model.id);
     if (sessionPath) args.push("--session", sessionPath);
     // 信任覆盖：用 --approve/--no-approve 覆盖 pi 的 trustStore 决策（本次生效，不落盘）。
@@ -122,11 +132,22 @@ export class PiProcess extends EventEmitter {
     // 每个 agent 绑定独立 cwd，确保 pi 自己发现项目级 AGENTS.md、settings 和 session 分组。
     // 打包后的 Electron 不一定继承用户终端 PATH；这里补齐跨平台 Node 工具链常见 bin 目录，尽量让已安装 pi 的用户开箱即用。
     // Windows 下通过 PiLocator.createInvocation 显式包裹含空格的 npm shim 路径，避免 cmd 拆分路径导致 agent 启动失败。
+    // pi 通过 PI_CODING_AGENT_DIR 环境变量决定 agentDir（APPEND_SYSTEM.md / extensions /
+    // skills / models.json / auth.json / settings.json 的根目录）。隔离启动时把它指向独立
+    // 目录，即可彻底切断全局 Neo 人设与 Houkai 扩展，无需修改 pi 核心。
+    const baseEnv = this.locator.createProcessEnv(this.settings, invocation.pathPrefix, invocation.wsl);
+    // WSL 子进程不能识别 C:\... 形式；与 cwd/session 一样把隔离 agentDir 转成 /mnt/c/...。
+    const isolatedAgentDir = options?.agentDir && invocation.wsl
+      ? PiLocator.windowsPathToWslPath(options.agentDir)
+      : options?.agentDir;
+    const env = isolatedAgentDir
+      ? { ...baseEnv, PI_CODING_AGENT_DIR: isolatedAgentDir }
+      : baseEnv;
     this.proc = spawn(invocation.command, finalArgs, {
       cwd: wslCwd,
       stdio: ["pipe", "pipe", "pipe"],
       shell: invocation.shell,
-      env: this.locator.createProcessEnv(this.settings, invocation.pathPrefix, invocation.wsl),
+      env,
       windowsVerbatimArguments: invocation.windowsVerbatimArguments,
     });
 

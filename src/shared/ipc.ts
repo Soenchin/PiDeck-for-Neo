@@ -282,4 +282,15 @@ export const ipcChannels = {
 
 	// ===== 内置浏览器 =====
 	browserOpenExternal: "browser:open-external",
+
+	// ===== Neo × ROCKET 双 Agent 房间 =====
+	roomGetState: "room:get-state",
+	roomGetMessages: "room:get-messages",
+	roomSend: "room:send",
+	roomAbort: "room:abort",
+	roomStop: "room:stop",
+	roomClear: "room:clear",
+	roomNewTable: "room:new-table",
+	roomSetModel: "room:set-model",
+	roomState: "room:state",
 } as const;

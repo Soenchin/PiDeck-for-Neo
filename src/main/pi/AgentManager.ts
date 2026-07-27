@@ -466,12 +466,16 @@ export class AgentManager {
 				...(payload && typeof payload === "object" ? payload : {}),
 			});
 		});
-		const runtime: AgentRuntime = { tab, process };
+		// 隔离启动选项随 runtime 保存，以便进程崩溃自动重连时复用同样的 agentDir / noExtensions。
+		const launchOptions = (input.isolatedAgentDir || input.noExtensions)
+			? { agentDir: input.isolatedAgentDir, noExtensions: input.noExtensions }
+			: undefined;
+		const runtime: AgentRuntime = { tab, process, launchOptions };
 		this.agents.set(id, runtime);
 		this.messages.set(id, []);
 		this.emitState();
 
-		const client = process.start(input.sessionPath, trustOverride);
+		const client = process.start(input.sessionPath, trustOverride, launchOptions);
 		const t3 = Date.now();
 		void this.appLogger?.info("agent", "Pi process spawned", {
 			agentId: id,
@@ -1186,7 +1190,8 @@ export class AgentManager {
 		});
 
 		const process = new PiProcess(project.path, this.settingsStore.get());
-		const client = process.start(sessionPath);
+		// 复用 runtime 上保存的隔离启动选项，保证重连后的 ROCKET 进程仍走独立 agentDir。
+		const client = process.start(sessionPath, undefined, runtime.launchOptions);
 
 		// 注册事件监听（与 create() 保持一致）
 		process.on("event", (event) => this.handlePiEvent(agentId, event));
@@ -4028,4 +4033,6 @@ export class AgentManager {
 type AgentRuntime = {
 	tab: AgentTab;
 	process: PiProcess;
+	/** 隔离启动选项，随 runtime 保存以在自动重连时复用。 */
+	launchOptions?: { agentDir?: string; noExtensions?: boolean };
 };
