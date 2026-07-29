@@ -116,4 +116,4 @@ The pi-agent process proxy and desktop model-fetch/test proxy can be configured 
 
 This fork is distributed under the [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html) (AGPL-3.0-only).
 
-PiDeck for NeoNisch is forked from upstream PiDeck. The original upstream MIT license and copyright information are preserved in [`LICENSE-MIT`](LICENSE-MIT); new and modified code in this fork is released under AGPL-3.0-only.
+PiDeck for NeoNisch is forked from upstream PiDeck. New and modified code in this fork is released under AGPL-3.0-only; original upstream copyright and license obligations remain applicable to code retained from its source.

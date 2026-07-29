@@ -116,4 +116,4 @@ pi Agent 子进程代理和桌面端模型拉取/测试代理可以独立配置�
 
 本分支采用 [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html)（AGPL-3.0-only）授权。
 
-本项目 fork 自上游 PiDeck。上游代码的原始 MIT 许可和版权信息保留在 [`LICENSE-MIT`](LICENSE-MIT) 中；本分支新增与修改的代码按 AGPL-3.0-only 发布。
+本项目 fork 自上游 PiDeck。本分支新增与修改的代码按 AGPL-3.0-only 发布；上游代码的原始版权和许可义务仍应按其来源保留。
