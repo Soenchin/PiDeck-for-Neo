@@ -39,31 +39,11 @@ PiDeck 仍然通过 `pi --mode rpc` 运行 Agent；NeoNisch 定制的是桌面�
 
 ## 截图
 
-### 工作区与对话界面
+### NeoNisch 工作区总览
 
-![工作区总览](docs/images/overview.png)
+![NeoNisch 工作区总览](docs/images/neonisch-overview.png)
 
-NeoNisch 工作区总览：品牌化桌面布局、Markdown 渲染与流式输出、活动轨迹、工具调用详情、模型与思考等级、缓存状态、Git 分支和会话控制。
-
-### 配置管理
-
-![配置管理](docs/images/config.png)
-
-配置管理界面：Models、Auth、Settings 和原始 JSON 编辑。配置保存后可按需重启 Agent 生效。
-
-### 斜线命令与会话历史
-
-![斜线命令及会话历史](docs/images/slash-commands.png)
-
-斜线命令建议面板与历史会话抽屉，方便在 NN 的长期工作流中快速浏览和恢复对话。
-
-### 文件树与会话操作
-
-![文件树及会话操作](docs/images/files.png)
-
-项目文件树、文件引用、会话修改摘要和会话右键操作。
-
-> 这里的截图暂时沿用现有版本，后续会替换为更能体现 NeoNisch 视觉主题、桌宠和 NN 双 Agent 房间的新截图。
+这张主截图展示了 NeoNisch 专属品牌栏、深色工作区、多项目与 Agent 侧栏、中心协作入口，以及右侧 Git 文件面板。后续会继续补充桌宠、Neo / ROCKET 双 Agent 房间和跨会话「小问题」状态的专门截图。
 
 ---
 

@@ -1,120 +1,124 @@
 import { defineConfig } from "vitepress";
 
-const base = process.env.VITEPRESS_BASE ?? "/PiDeck/";
+const base = process.env.VITEPRESS_BASE ?? "/PiDeck-for-Neo/";
+const siteUrl = "https://soenchin.github.io/PiDeck-for-Neo/";
+const repositoryUrl = "https://github.com/Soenchin/PiDeck-for-Neo";
+const releasesUrl = `${repositoryUrl}/releases`;
 
 export default defineConfig({
-  title: "PiDeck - pi Agent Desktop Workbench",
-  description: "PiDeck is an open-source desktop workbench for managing multiple pi AI coding agents across local project folders. Features session history, Git integration, built-in terminal, and visual config management.",
+  title: "PiDeck for NeoNisch",
+  description:
+    "PiDeck for NeoNisch is a focused desktop workspace for the long-term collaboration between Soen and NeoNisch.",
   lang: "zh-CN",
   base,
   cleanUrls: true,
   lastUpdated: true,
   head: [
-    ["link", { rel: "icon", href: `${base}icon.svg` }],
-    ["link", { rel: "canonical", href: "https://ayuayue.github.io/PiDeck/" }],
-    ["meta", { name: "keywords", content: "PiDeck, pi, pi-agent, ai-coding-agent, desktop, electron, rpc, local-ai, developer-tools, coding-assistant, workspace, session-management, git, terminal, windows, macos, linux, open-source" }],
-    ["meta", { name: "author", content: "ayuayue" }],
+    ["link", { rel: "icon", href: `${base}neonisch-logo.svg` }],
+    ["link", { rel: "canonical", href: siteUrl }],
+    [
+      "meta",
+      {
+        name: "keywords",
+        content:
+          "NeoNisch, PiDeck for NeoNisch, pi-agent, AI coding workspace, desktop agent, Neo, ROCKET",
+      },
+    ],
+    ["meta", { name: "author", content: "SoenChin" }],
     ["meta", { name: "robots", content: "index, follow" }],
-    ["meta", { property: "og:site_name", content: "PiDeck" }],
-    ["meta", { property: "og:title", content: "PiDeck - pi Agent Desktop Workbench" }],
-    ["meta", { property: "og:description", content: "Open-source desktop workbench to manage pi AI coding agents across local project folders. Features session history, Git integration, terminal, and plugin management." }],
+    ["meta", { property: "og:site_name", content: "PiDeck for NeoNisch" }],
+    [
+      "meta",
+      {
+        property: "og:title",
+        content: "PiDeck for NeoNisch — A workspace for NN collaboration",
+      },
+    ],
+    [
+      "meta",
+      {
+        property: "og:description",
+        content:
+          "A quiet, focused desktop workspace where pi, NeoNisch, and long-running agent collaboration meet.",
+      },
+    ],
     ["meta", { property: "og:type", content: "website" }],
-    ["meta", { property: "og:url", content: "https://ayuayue.github.io/PiDeck/" }],
-    ["meta", { property: "og:image", content: "https://ayuayue.github.io/PiDeck/og-image.png" }],
-    ["meta", { property: "og:image:width", content: "1200" }],
-    ["meta", { property: "og:image:height", content: "630" }],
+    ["meta", { property: "og:url", content: siteUrl }],
+    ["meta", { property: "og:image", content: `${siteUrl}images/neonisch-overview.png` }],
+    ["meta", { property: "og:image:width", content: "2047" }],
+    ["meta", { property: "og:image:height", content: "1151" }],
     ["meta", { name: "twitter:card", content: "summary_large_image" }],
-    ["meta", { name: "twitter:title", content: "PiDeck - pi Agent Desktop Workbench" }],
-    ["meta", { name: "twitter:description", content: "Manage multiple pi AI coding agents in local workspaces. Open-source desktop app with sessions, Git, terminal, and extensions." }],
-    ["meta", { name: "twitter:image", content: "https://ayuayue.github.io/PiDeck/og-image.png" }],
+    ["meta", { name: "twitter:title", content: "PiDeck for NeoNisch" }],
+    [
+      "meta",
+      {
+        name: "twitter:description",
+        content: "The NeoNisch-focused PiDeck workspace for long-term agent collaboration.",
+      },
+    ],
+    ["meta", { name: "twitter:image", content: `${siteUrl}images/neonisch-overview.png` }],
     [
       "script",
       { type: "application/ld+json" },
       JSON.stringify({
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
-        "name": "PiDeck",
-        "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "Windows, macOS, Linux",
-        "description": "Open-source desktop workbench for managing multiple pi AI coding agents across local project folders.",
-        "url": "https://ayuayue.github.io/PiDeck",
-        "downloadUrl": "https://github.com/ayuayue/PiDeck/releases",
-        "sourceCodeRepository": "https://github.com/ayuayue/PiDeck",
-        "license": "https://opensource.org/licenses/MIT",
-        "author": {
-          "@type": "Organization",
-          "name": "ayuayue",
-          "url": "https://github.com/ayuayue"
+        name: "PiDeck for NeoNisch",
+        applicationCategory: "DeveloperApplication",
+        operatingSystem: "Windows, macOS, Linux",
+        description:
+          "A NeoNisch-focused desktop workspace for long-term collaboration with pi agents.",
+        url: siteUrl,
+        downloadUrl: releasesUrl,
+        sourceCodeRepository: repositoryUrl,
+        license: "https://www.gnu.org/licenses/agpl-3.0.html",
+        author: {
+          "@type": "Person",
+          name: "SoenChin",
+          url: "https://github.com/Soenchin",
         },
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        }
-      })
-    ]
+      }),
+    ],
   ],
   themeConfig: {
-    logo: "/icon.svg",
-    siteTitle: "PiDeck",
+    logo: "/neonisch-logo.svg",
+    siteTitle: "PiDeck for NeoNisch",
     nav: [
       { text: "首页", link: "/" },
       { text: "English", link: "/en" },
       { text: "使用指南", link: "/guide/usage-guide" },
-      { text: "功能", link: "/guide/features" },
-      { text: "FAQ", link: "/guide/faq" },
-      { text: "对比", link: "/guide/comparison" },
-      { text: "更新日志", link: "/changelog" },
-      {
-        text: "下载",
-        link: "https://github.com/ayuayue/PiDeck/releases",
-      },
+      { text: "开发", link: "/guide/development" },
+      { text: "GitHub", link: repositoryUrl },
     ],
     sidebar: {
       "/guide/": [
         {
-          text: "使用指南",
+          text: "PiDeck for NeoNisch",
           items: [
-            { text: "完整使用指南（新手向）", link: "/guide/usage-guide" },
+            { text: "使用指南", link: "/guide/usage-guide" },
             { text: "快速开始", link: "/guide/getting-started" },
-            { text: "功能介绍", link: "/guide/features" },
-            { text: "配置与 Skills", link: "/guide/settings" },
+            { text: "设置与技能", link: "/guide/settings" },
             { text: "常见问题", link: "/guide/faq" },
-            { text: "产品对比", link: "/guide/comparison" },
             { text: "开发与打包", link: "/guide/development" },
-            { text: "贡献者", link: "/guide/contributors" },
           ],
         },
       ],
     },
-    socialLinks: [
-      { icon: "github", link: "https://github.com/ayuayue/PiDeck" },
-    ],
-    search: {
-      provider: "local",
-    },
-    outline: {
-      label: "本页目录",
-      level: [2, 3],
-    },
-    docFooter: {
-      prev: "上一页",
-      next: "下一页",
-    },
+    socialLinks: [{ icon: "github", link: repositoryUrl }],
+    search: { provider: "local" },
+    outline: { label: "本页目录", level: [2, 3] },
+    docFooter: { prev: "上一页", next: "下一页" },
     lastUpdated: {
       text: "最近更新",
-      formatOptions: {
-        dateStyle: "medium",
-        timeStyle: "short",
-      },
+      formatOptions: { dateStyle: "medium", timeStyle: "short" },
     },
     editLink: {
-      pattern: "https://github.com/ayuayue/PiDeck/edit/main/docs-site/:path",
+      pattern: `${repositoryUrl}/edit/main/docs-site/:path`,
       text: "在 GitHub 上编辑此页",
     },
     footer: {
-      message: "Released under the MIT License.",
-      copyright: "Copyright © 2026 ayuayue",
+      message: "Released under the AGPL-3.0-only License.",
+      copyright: "Copyright © 2026 SoenChin",
     },
   },
 });

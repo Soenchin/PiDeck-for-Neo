@@ -2,24 +2,24 @@
 
 > 如果你没用过 pi 或类似的 AI 编码助手，这份指南会从零开始带你走完从安装到完成第一个任务的完整流程。
 
-## 什么是 PiDeck？什么是 pi？
+## 什么是 PiDeck for NeoNisch？什么是 pi？
 
 **pi** 是一个命令行编码助手工具——你在终端输命令，它理解你的项目代码，能帮你写代码、改代码、解释代码。
 
-**PiDeck** 是一个桌面应用，相当于给 pi 配了一个图形界面。它让你不需要一直盯着终端，而是可以在一个窗口里：
+**PiDeck for NeoNisch** 是一个围绕 NN 工作流定制的桌面应用，相当于给 pi 配了一个图形界面。它让你不需要一直盯着终端，而是可以在一个窗口里：
 
 - 同时管理多个项目的 pi 对话（像聊天软件一样）
 - 查看项目文件和 Git 分支
 - 在有需要的时候打开终端
 - 用可视化的方式配置 API 密钥和模型
 
-简单说：pi 是"干活的大脑"，PiDeck 是"干活的桌面"。
+简单说：pi 是“干活的大脑”，PiDeck for NeoNisch 是“干活的桌面”。
 
 ---
 
 ## 第一步：安装 pi
 
-PiDeck 本身只是一个桌面外壳，所有编码能力来自 pi，所以必须先安装 pi。
+PiDeck for NeoNisch 本身只是一个桌面外壳，所有编码能力来自 pi，所以必须先安装 pi。
 
 ### 什么是 pi？
 
@@ -43,9 +43,9 @@ pi --version
 
 ### 下载安装包
 
-访问 PiDeck 的 GitHub Releases 页面：
+访问 PiDeck for NeoNisch 的 GitHub Releases 页面：
 
-[https://github.com/ayuayue/PiDeck/releases](https://github.com/ayuayue/PiDeck/releases)
+[https://github.com/SoenChin/PiDeck-for-Neo/releases](https://github.com/SoenChin/PiDeck-for-Neo/releases)
 
 找到最新版本，根据你的操作系统选择：
 
@@ -283,6 +283,5 @@ Agent 关闭后，它会在左侧栏消失，重新变为可点击的历史会�
 
 ## 下一步
 
-- [功能介绍](/guide/features) — 了解 PiDeck 的所有功能
 - [配置与 Skills](/guide/settings) — 深入学习配置管理
 - [更新日志](/changelog) — 查看各版本变化

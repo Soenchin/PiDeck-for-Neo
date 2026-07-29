@@ -1,7 +1,7 @@
 {
   "name": "pi-desktop",
   "version": "0.6.5",
-  "description": "PiDeck is an open-source desktop workbench to manage multiple pi AI coding agents across local project folders with session history, Git integration, terminal, and config management.",
+  "description": "PiDeck for NeoNisch is a NeoNisch-focused desktop workspace for long-running collaboration with pi AI coding agents.",
   "private": true,
   "license": "AGPL-3.0-only",
   "author": {
@@ -14,13 +14,13 @@
       "url": "https://github.com/1900EasonJin"
     }
   ],
-  "homepage": "https://github.com/ayuayue/PiDeck#readme",
+  "homepage": "https://github.com/SoenChin/PiDeck-for-Neo#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ayuayue/PiDeck.git"
+    "url": "git+https://github.com/SoenChin/PiDeck-for-Neo.git"
   },
   "bugs": {
-    "url": "https://github.com/ayuayue/PiDeck/issues"
+    "url": "https://github.com/SoenChin/PiDeck-for-Neo/issues"
   },
   "keywords": [
     "pi",

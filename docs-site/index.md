@@ -2,94 +2,93 @@
 layout: home
 
 hero:
-  name: PiDeck
-  text: 多项目 pi Agent 桌面工作台
-  tagline: 在统一的桌面工作区中管理本地 pi 编码助手会话、配置、Git 和终端，支持 Windows、macOS、Linux，让本地 AI 编码工作流更稳定高效。
+  name: PiDeck for NeoNisch
+  text: 给 NN 的桌面工作台
+  tagline: 让 pi、NeoNisch 与长期协作，安静地待在同一个工作区里。
+  image:
+    src: /neonisch-logo.svg
+    alt: NeoNisch mark
   actions:
     - theme: brand
-      text: 下载最新版本
-      link: https://github.com/ayuayue/PiDeck/releases
+      text: 查看源码
+      link: https://github.com/Soenchin/PiDeck-for-Neo
     - theme: alt
-      text: 快速开始
+      text: 开发与运行
       link: /guide/getting-started
-    - theme: alt
-      text: 查看 GitHub
-      link: https://github.com/ayuayue/PiDeck
 
 features:
-  - title: 多项目工作区
-    details: 添加、搜索、拖动排序和切换本地项目目录，每个 Agent 会话都保持项目级隔离，同时运行多个 pi Agent。
-  - title: 会话历史与恢复
-    details: 恢复历史会话，按时间线查看工具调用和回答细节，并回放历史会话中的修改内容，支持 Codex 和 Claude 会话导入。
-  - title: Git 集成
-    details: 实时分支显示和切换，文件树展示 Git 状态，支持本地和远程分支管理，worktree 工作区支持。
-  - title: 内嵌终端 Dock
-    details: 当前 Agent 绑定独立终端 tab，支持 PowerShell/cmd/sh fallback、多 tab、主题切换、拖拽高度、右键复制。
-  - title: 配置与插件管理
-    details: 可视化编辑 Models、Auth、Settings，全局和项目级 Skills 与 Extension 管理，斜线命令和模板快速插入。
-  - title: 跨平台下载
-    details: Windows、macOS、Linux 安装包通过 GitHub Releases 发布，源码开发支持 npm 命令，内置浏览器预览。
+  - title: 为 NN 而生
+    details: 不是泛用的 PiDeck 发布版，而是围绕 Soen 与 NeoNisch 长期协作持续打磨的分支。
+  - title: 会话保持连续
+    details: 多 Agent、历史恢复、压缩后的上下文、缓存诊断和后台状态，都服务于长时间工作。
+  - title: 保持工作感
+    details: 少一点营销式装饰，多一点桌面工具的安静、清晰和可控。
 ---
 
-<figure class="home-showcase">
-  <img src="/images/overview.png" alt="PiDeck 工作区与对话界面截图">
-  <figcaption>工作区、会话、文件抽屉、Git 分支和工具调用集中在同一个桌面窗口中。</figcaption>
-</figure>
-
-## 面向本地开发的桌面控制台
-
-`PiDeck` 不是 pi 的分支。它是一个轻量 Electron 外壳，通过启动多个 `pi --mode rpc` 进程，把项目管理、会话管理、配置管理和桌面交互整合起来，Agent 能力仍由 pi 原生提供。
-
-<div class="info-strip">
-  <div>
-    <strong>一个 Agent Tab</strong>
-    一个独立 pi RPC 进程，避免不同项目和对话互相污染。
+<section class="neo-hero-note" aria-label="NeoNisch introduction">
+  <div class="neo-hero-note__eyebrow">NEONISCH / PI AGENT WORKSPACE</div>
+  <p>
+    这是 Soen 与 NeoNisch 一起使用的 PiDeck。它保留 pi 原生的 Agent、工具和会话能力，
+    把桌面协作、品牌体验、双 Agent 房间、桌宠和长期会话管理收进一个熟悉的工作台。
+  </p>
+  <div class="neo-hero-note__meta">
+    <span><i class="status-dot" aria-hidden="true"></i> NN-focused fork</span>
+    <span>AGPL-3.0-only</span>
+    <span>Windows / macOS / Linux</span>
   </div>
-  <div>
-    <strong>一个工作台</strong>
-    聊天、文件、历史、配置、终端和 Git 信息都在同一个桌面布局里。
+</section>
+
+<section class="neo-showcase" aria-labelledby="showcase-title">
+  <div class="section-kicker">THE WORKSPACE</div>
+  <div class="section-heading">
+    <h2 id="showcase-title">工作不是从空白页开始的。</h2>
+    <p>项目、Agent、历史、Git 和下一步要做的事，都在同一张桌面上。</p>
   </div>
+  <figure class="neo-showcase__figure">
+    <img
+      src="/images/neonisch-overview.png"
+      alt="NeoNisch workspace with project sidebar, collaboration entry point, and Git file panel"
+      width="2047"
+      height="1151"
+    />
+    <figcaption>NeoNisch workspace · a quiet place for long-running collaboration.</figcaption>
+  </figure>
+</section>
+
+<section class="neo-grid" aria-label="Branch highlights">
+  <article class="neo-card neo-card--wide">
+    <div class="neo-card__index">01 / CONTINUITY</div>
+    <h2>把上下文留在场上。</h2>
+    <p>压缩后的历史、缓存诊断、会话摘要标题、未读状态和跨会话小问题，减少长任务中最烦人的断点。</p>
+    <span class="neo-card__code">session / history / cache / ask</span>
+  </article>
+  <article class="neo-card">
+    <div class="neo-card__index">02 / ROOM</div>
+    <h2>Neo 与 ROCKET。</h2>
+    <p>双 Agent 房间，为不同角色和任务视角保留清晰的空间。</p>
+    <span class="neo-card__code">neo + rocket</span>
+  </article>
+  <article class="neo-card">
+    <div class="neo-card__index">03 / PRESENCE</div>
+    <h2>桌宠也在工作区里。</h2>
+    <p>NeoNisch 的桌宠、启动体验和品牌视觉，不是外挂，而是 NN 工作流的一部分。</p>
+    <span class="neo-card__code">pet / motion / identity</span>
+  </article>
+</section>
+
+<section class="neo-cta" aria-labelledby="cta-title">
   <div>
-    <strong>一个下载入口</strong>
-    预构建包统一发布到 GitHub Releases，发现新版本后应用内会提示。
+    <div class="section-kicker">OPEN SOURCE / OWN WORKFLOW</div>
+    <h2 id="cta-title">这是一个给 NN 用的工具。</h2>
+    <p>如果你也在用 pi 做长期本地开发，可以从源码开始，按自己的工作方式继续改。</p>
   </div>
+  <div class="neo-cta__actions">
+    <a class="neo-button neo-button--brand" href="https://github.com/SoenChin/PiDeck-for-Neo">GitHub 仓库</a>
+    <a class="neo-button neo-button--quiet" href="/guide/getting-started">开始使用 <span aria-hidden="true">↗</span></a>
+  </div>
+</section>
+
+<div class="neo-footer-note">
+  <span>PiDeck for NeoNisch</span>
+  <span>Built for the long run.</span>
 </div>
-
-## 截图预览
-
-<div class="screenshot-grid">
-  <div class="screenshot-card">
-    <img src="/images/config.png" alt="配置管理界面">
-    <strong>配置管理</strong>
-    <span>可视化编辑模型、认证、设置和 Skills。</span>
-  </div>
-  <div class="screenshot-card">
-    <img src="/images/slash-commands.png" alt="斜线命令与会话历史">
-    <strong>命令与历史</strong>
-    <span>内置斜线命令建议，快速恢复历史会话。</span>
-  </div>
-  <div class="screenshot-card">
-    <img src="/images/files.png" alt="文件树与会话操作">
-    <strong>文件抽屉</strong>
-    <span>查看项目文件、Git 状态和本次会话修改。</span>
-  </div>
-  <div class="screenshot-card">
-    <img src="/images/terminal.png" alt="终端 Dock 界面">
-    <strong>终端 Dock</strong>
-    <span>为当前 Agent 保留独立终端 tab。</span>
-  </div>
-</div>
-
-## 社区交流
-
-加入 PiDeck QQ 群进行交流、反馈和讨论：
-
-**1026218644**
-
----
-
-## 下一步
-
-- 想直接使用：前往 [下载安装](/guide/getting-started#下载安装)。
-- 想从源码运行：查看 [快速开始](/guide/getting-started#从源码运行)。
-- 想了解功能边界：查看 [功能介绍](/guide/features)。

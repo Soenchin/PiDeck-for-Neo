@@ -58,7 +58,7 @@ jobs:
 
       - name: Generate sitemap
         run: |
-          BASE="${VITEPRESS_BASE:-/PiDeck/}"
+          BASE="${VITEPRESS_BASE:-/PiDeck-for-Neo/}"
           SITEMAP="docs-site/.vitepress/dist/sitemap.xml"
           echo '<?xml version="1.0" encoding="UTF-8"?>' > "$SITEMAP"
           echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' >> "$SITEMAP"
@@ -70,7 +70,7 @@ jobs:
             else
               loc="$BASE$rel/"
             fi
-            echo "  <url><loc>https://ayuayue.github.io/PiDeck${loc}</loc></url>" >> "$SITEMAP"
+            echo "  <url><loc>https://soenchin.github.io/PiDeck-for-Neo${loc}</loc></url>" >> "$SITEMAP"
           done
           echo '</urlset>' >> "$SITEMAP"
           cat "$SITEMAP"

@@ -1,4 +1,4 @@
-# 开发与打包
+# PiDeck for NeoNisch 开发与打包
 
 ## 常用命令
 
@@ -31,7 +31,7 @@
 
 ## 官网与文档
 
-本站点使用 VitePress，源码位于 `docs-site/`。GitHub Pages workflow 会在推送到 `main` 后构建 `docs-site/.vitepress/dist` 并发布。
+本站点使用 VitePress，源码位于 `docs-site/`。GitHub Pages workflow 会在推送到 `main` 后构建 `docs-site/.vitepress/dist` 并发布到 NeoNisch 分支自己的 Pages 站点。
 
 如果仓库改用自定义域名，可以在 Pages workflow 中设置：
 
@@ -40,4 +40,4 @@ env:
   VITEPRESS_BASE: /
 ```
 
-默认配置面向 `https://ayuayue.github.io/PiDeck/`，所以 base 为 `/PiDeck/`。
+默认配置面向 `https://soenchin.github.io/PiDeck-for-Neo/`，所以 base 为 `/PiDeck-for-Neo/`。

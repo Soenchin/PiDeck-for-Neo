@@ -39,31 +39,11 @@ Upstream PiDeck changes are not merged blindly. Each update is reviewed for conf
 
 ## Screenshots
 
-### Workspace & Conversation
+### NeoNisch Workspace Overview
 
-![Workspace overview](docs/images/overview.png)
+![NeoNisch workspace overview](docs/images/neonisch-overview.png)
 
-NeoNisch workspace overview: branded desktop layout, Markdown rendering and streaming output, activity flow, tool-call details, model and thinking controls, cache status, Git branch information, and session controls.
-
-### Configuration Management
-
-![Configuration management](docs/images/config.png)
-
-Configuration management for Models, Auth, Settings, and raw JSON editing. Saved configuration can be applied after restarting an agent when necessary.
-
-### Slash Commands & Session History
-
-![Slash commands and session history](docs/images/slash-commands.png)
-
-The slash-command suggestion panel and session-history drawer for quickly browsing and restoring conversations in NN's long-running workflow.
-
-### File Tree & Session Actions
-
-![File tree and session actions](docs/images/files.png)
-
-Project file tree, file references, session modification summary, and session context actions.
-
-> These screenshots are temporary and will be replaced with new captures that better show the NeoNisch visual theme, desktop pet, and Neo / ROCKET dual-agent room.
+This main screenshot shows the NeoNisch-branded title area, dark workspace, multi-project and agent sidebar, central collaboration entry point, and Git file panel. Dedicated screenshots for the desktop pet, Neo / ROCKET dual-agent room, and cross-session Question status can be added later.
 
 ---
 

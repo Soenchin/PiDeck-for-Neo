@@ -1,6 +1,6 @@
 # 快速开始
 
-PiDeck 是一个用于管理多个 [pi](https://pi.dev) 编码 Agent 会话的桌面工作台。它负责桌面端工作流，Agent 能力仍由 pi CLI 提供。
+PiDeck for NeoNisch（NN）是一个面向长期协作的本地 AI 桌面工作台。它负责桌面端工作流，Agent 能力仍由 [pi](https://pi.dev) CLI 提供。
 
 ## 环境要求
 
@@ -20,15 +20,15 @@ pi --mode rpc
 
 Windows、macOS、Linux 的预构建安装包发布在 GitHub Releases：
 
-[打开 GitHub Releases](https://github.com/ayuayue/PiDeck/releases)
+[打开 NeoNisch 分支 Releases](https://github.com/SoenChin/PiDeck-for-Neo/releases)
 
 安装后首次启动时，PiDeck 会尝试自动检测 `pi` 路径。如果检测失败，可以在设置里手动填写 pi 可执行文件路径。
 
 ## 从源码运行
 
 ```bash
-git clone https://github.com/ayuayue/PiDeck.git
-cd pi-desktop
+git clone https://github.com/SoenChin/PiDeck-for-Neo.git
+cd PiDeck-for-Neo
 npm install
 npm run make-icon
 npm run dev
