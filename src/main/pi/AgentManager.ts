@@ -52,6 +52,8 @@ export class AgentManager {
 	private readonly entryIdToLineMap = new Map<string, Map<string, number>>();
 	/** 每个 agent 的会话文件写入锁，防止并发 readFile→modify→writeFile 操作破坏 JSONL 文件 */
 	private readonly sessionLocks = new Map<string, Promise<void>>();
+	/** 已恢复完整压缩历史的 agent；后续 reload 不应再退回 Pi 的短上下文列表。 */
+	private readonly fullHistoryAgents = new Set<string>();
 	/** 流式消息 emit 节流状态。 */
 	private readonly messageFlushTimers = new Map<string, NodeJS.Timeout>();
 	private readonly pendingMessageAgents = new Set<string>();
@@ -192,13 +194,16 @@ export class AgentManager {
 		agentId: string,
 		skipEntries = false,
 		earlyMessagesPromise?: Promise<RpcResponse>,
-		options?: { preserveMessagesAfter?: number },
+		options?: { preserveMessagesAfter?: number; restoreFullHistory?: boolean },
 	) {
 		const t0 = Date.now();
 		const runtime = this.requireRuntime(agentId);
+		const restoreFullHistory =
+			Boolean(options?.restoreFullHistory) || this.fullHistoryAgents.has(agentId);
 
-		// 并行请求：get_messages 和 get_entries 互不依赖，可以同时发起
-		// 如果已有提前发出的请求（earlyMessagesPromise），直接复用，避免重复发送
+		// get_messages 仍可用于普通加载的快速路径和完整历史读取失败时的回退；
+		// 它只返回模型上下文，不会把完整历史发送给模型。完整 UI 历史成功读取后，
+		// 下面会优先使用 session JSONL 重建的结果。
 		const messagesPromise = earlyMessagesPromise ?? runtime.process.client.request({
 			type: "get_messages",
 		});
@@ -220,20 +225,41 @@ export class AgentManager {
 		]);
 		const t1 = Date.now();
 
-		const rawMessages = (response.data as { messages?: unknown[] } | undefined)?.messages ?? [];
-		const trimmed = this.trimHistoryMessages(rawMessages);
+		const responseMessages = (response?.data as { messages?: unknown[] } | undefined)?.messages ?? [];
+		const entriesData = entriesResult?.data as
+			| { entries?: Array<{ id: string; parentId: string | null; type?: string; message?: { role?: string } }>; leafId?: string }
+			| undefined;
 
-		// 解析 entryId 列表
+		// 解析 entryId 列表；完整历史模式会用 JSONL 自身的 parentId 链覆盖它，
+		// 因为压缩节点不属于 get_messages 返回值，但必须出现在 UI 时间线上。
+		let rawMessages = responseMessages;
 		let activeEntryIds: string[] | undefined;
-		if (entriesResult) {
-			const entriesData = entriesResult.data as
-				| { entries?: Array<{ id: string; parentId: string | null; type?: string; message?: { role?: string } }>; leafId?: string }
-				| undefined;
-			if (entriesData?.entries && entriesData?.leafId) {
-				activeEntryIds = this.buildActiveBranchEntryIds(entriesData.entries, entriesData.leafId);
+		let restoredFullHistory = false;
+		if (restoreFullHistory && runtime.tab.sessionPath) {
+			const fullHistory = await this.readFullHistoryFromSessionFile(
+				runtime.tab.sessionPath,
+				entriesData?.leafId,
+			).catch((error) => {
+				void this.appLogger?.warn("agent", "Failed to restore full UI history after compaction", {
+					agentId,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return undefined;
+			});
+			if (fullHistory) {
+				rawMessages = fullHistory.messages;
+				activeEntryIds = fullHistory.activeEntryIds;
+				restoredFullHistory = true;
+				this.fullHistoryAgents.add(agentId);
 			}
 		}
+		if (!activeEntryIds && entriesData?.entries && entriesData?.leafId) {
+			activeEntryIds = this.buildActiveBranchEntryIds(entriesData.entries, entriesData.leafId);
+		}
 
+		const trimmed = restoredFullHistory
+			? rawMessages
+			: this.trimHistoryMessages(rawMessages);
 		const messages = this.convertAgentMessages(agentId, trimmed, activeEntryIds);
 		const t2 = Date.now();
 		void this.appLogger?.info("agent", "Agent messages loaded", {
@@ -247,11 +273,21 @@ export class AgentManager {
 		});
 		// abort 时 ask_question 的 answer 已被覆写为 null，不再需要跟踪
 		this.abortedDuringAsk.delete(agentId);
-		const nextMessages = mergeHistoryWithPreservedMessages(
-			messages,
-			this.messages.get(agentId) ?? [],
-			options?.preserveMessagesAfter,
-		);
+		const currentMessages = this.messages.get(agentId) ?? [];
+		let nextMessages: ChatMessage[];
+		if (restoreFullHistory && !restoredFullHistory && currentMessages.length > messages.length) {
+			// compaction 刚结束时 JSONL 可能还在落盘；此时不要用短 get_messages
+			// 覆盖已经显示给用户的完整历史，先按稳定 id 合并，后续刷新再校正。
+			const byId = new Map<string, ChatMessage>();
+			for (const message of [...currentMessages, ...messages]) byId.set(message.id, message);
+			nextMessages = [...byId.values()].sort((left, right) => left.timestamp - right.timestamp);
+		} else {
+			nextMessages = mergeHistoryWithPreservedMessages(
+				messages,
+				currentMessages,
+				options?.preserveMessagesAfter,
+			);
+		}
 		this.messages.set(agentId, nextMessages);
 		this.scheduleMessageEmit(agentId, true);
 		return nextMessages;
@@ -356,11 +392,90 @@ export class AgentManager {
 	}
 
 	/**
-	 * 直接从历史会话 JSONL 文件读取最近 N 轮对话的消息条目。
-	 * 用于大会话场景：绕过 get_messages RPC 的整文件 JSON 传输瓶颈，
-	 * 直接在桌面进程解析 JSONL 并只取尾部消息，避免大会话加载导致界面冻结。
-	 * 返回兼容 RpcResponse 格式的对象，可复用 loadMessages 的消息处理管线。
+	 * 读取 session JSONL 中当前 active branch 的完整 UI 历史。
+	 *
+	 * Pi 的 get_messages 会主动隐藏 compaction 之前的旧上下文，这是模型侧的优化；
+	 * 但桌面端时间线不能跟着隐藏。这里沿 JSONL 的 parentId 链重建完整分支，
+	 * 把 compaction 节点转换成 convertAgentMessages 能识别的摘要消息。
+	 * 这份数据只进入 renderer，不会重新发送给 Pi。
 	 */
+	private async readFullHistoryFromSessionFile(
+		sessionPath: string,
+		preferredLeafId?: string,
+	): Promise<{ messages: unknown[]; activeEntryIds: string[] } | undefined> {
+		const raw = await readFile(sessionPath, "utf8");
+		const lines = raw.split(/\r?\n/).filter(Boolean);
+		const entries = lines.flatMap((line) => {
+			try {
+				const entry = JSON.parse(line) as Record<string, any>;
+				return entry.id ? [entry] : [];
+			} catch {
+				return [];
+			}
+		});
+		if (!entries.some((entry) => entry.type === "compaction")) return undefined;
+
+		const entryById = new Map<string, Record<string, any>>(
+			entries.map((entry) => [String(entry.id), entry]),
+		);
+		let leafId = preferredLeafId && entryById.has(preferredLeafId)
+			? preferredLeafId
+			: entries[entries.length - 1]?.id;
+		if (!leafId) return undefined;
+
+		const branch: Record<string, any>[] = [];
+		const seen = new Set<string>();
+		while (leafId && !seen.has(leafId)) {
+			seen.add(leafId);
+			const entry = entryById.get(leafId);
+			if (!entry) break;
+			branch.unshift(entry);
+			leafId = typeof entry.parentId === "string" ? entry.parentId : "";
+		}
+
+		const messages: unknown[] = [];
+		const activeEntryIds: string[] = [];
+		for (const entry of branch) {
+			if (entry.type === "message" && entry.message && typeof entry.message === "object") {
+				messages.push(entry.message);
+				activeEntryIds.push(String(entry.id));
+				continue;
+			}
+			if (entry.type === "compaction") {
+				messages.push({
+					role: "compactionSummary",
+					summary: entry.summary,
+					tokensBefore: entry.tokensBefore,
+					timestamp: this.normalizeHistoryTimestamp(entry.timestamp),
+				});
+			}
+		}
+		return { messages, activeEntryIds };
+	}
+
+	private async restoreFullHistoryIfNeeded(
+		agentId: string,
+		preserveMessagesAfter?: number,
+	) {
+		const runtime = this.agents.get(agentId);
+		if (!runtime?.tab.sessionPath || this.fullHistoryAgents.has(agentId)) return;
+		const raw = await readFile(runtime.tab.sessionPath, "utf8").catch(() => "");
+		if (!raw.includes('"type":"compaction"') && !raw.includes('"type": "compaction"')) return;
+		await this.loadMessages(agentId, false, undefined, {
+			preserveMessagesAfter,
+			restoreFullHistory: true,
+		});
+	}
+
+	private normalizeHistoryTimestamp(value: unknown): number {
+		if (typeof value === "number" && Number.isFinite(value)) return value;
+		if (typeof value === "string") {
+			const parsed = Date.parse(value);
+			if (Number.isFinite(parsed)) return parsed;
+		}
+		return Date.now();
+	}
+
 	private async readRecentMessagesFromSessionFile(
 		sessionPath: string,
 		maxTurns: number,
@@ -636,7 +751,10 @@ export class AgentManager {
 						new Promise<void>((resolve) => setTimeout(resolve, 800))
 							.then(() => this.loadMessages(id, true, undefined, { preserveMessagesAfter })),
 					)
-					.then(() => {
+					.then(async () => {
+						// get_messages 可能只返回压缩后的短上下文；完整历史恢复在后台完成，
+						// 不阻塞 Agent 启动，也不把旧消息重新送回模型。
+						await this.restoreFullHistoryIfNeeded(id, preserveMessagesAfter).catch(() => undefined);
 						void this.appLogger?.info("agent", "Agent history loaded in background", {
 							agentId: id,
 							totalMs: Date.now() - preserveMessagesAfter,
@@ -676,7 +794,8 @@ export class AgentManager {
 					),
 					{ preserveMessagesAfter },
 				)
-					.then(() => {
+					.then(async () => {
+						await this.restoreFullHistoryIfNeeded(id, preserveMessagesAfter).catch(() => undefined);
 						void this.appLogger?.info("agent", "Agent recent history loaded from file", {
 							agentId: id,
 							sessionPath: input.sessionPath,
@@ -1113,9 +1232,9 @@ export class AgentManager {
 			}
 			compactionCompleted = true;
 
-			// RPC response 表示 Pi 已完成 compaction；标题必须取压缩后的消息上下文，
-			// 因此等后台刷新结束再调度，仍不阻塞用户看到压缩已完成。
-			void this.loadMessages(agentId)
+			// RPC response 表示 Pi 已完成 compaction。UI 历史从 JSONL 恢复，
+			// 不能被压缩后的 get_messages 短上下文覆盖；模型侧上下文仍保持压缩结果。
+			void this.loadMessages(agentId, false, undefined, { restoreFullHistory: true })
 				.catch(() => undefined)
 				.finally(() => this.scheduleAutoTitleRefresh(agentId, "compaction"));
 			void this.appLogger?.info("agent", "Compact completed successfully", {
@@ -1141,9 +1260,8 @@ export class AgentManager {
 				});
 				await this.reattachProcess(agentId, runtime.tab.sessionPath);
 				compactionCompleted = true;
-				await this.loadMessages(agentId).catch(() => undefined);
+				await this.loadMessages(agentId, false, undefined, { restoreFullHistory: true }).catch(() => undefined);
 				this.scheduleAutoTitleRefresh(agentId, "compaction");
-				this.addMessage(agentId, "system", "会话压缩完成");
 				void this.appLogger?.info("agent", "Compact: reattach succeeded", {
 					agentId,
 					totalElapsedMs: Date.now() - startTime,
@@ -1280,6 +1398,7 @@ export class AgentManager {
 			if (data?.sessionName && !this.getAutoTitleState(runtime.tab.sessionPath)) {
 				void this.lockAutoTitle(runtime.tab.sessionPath, data.sessionName);
 			}
+			this.fullHistoryAgents.delete(agentId);
 			runtime.tab.title = data?.sessionName ?? runtime.tab.title;
 			runtime.tab.status = "idle";
 			// 进程退出型压缩可能来不及发 compaction_end；重连成功即表示 Pi 已可继续接收消息。
@@ -1291,7 +1410,7 @@ export class AgentManager {
 			// 如果有旧的 pending abort 标记，清理掉
 			this.abortedDuringAsk.delete(agentId);
 
-			await this.loadMessages(agentId).catch(() => undefined);
+			await this.loadMessages(agentId, false, undefined, { restoreFullHistory: true }).catch(() => undefined);
 
 			void this.appLogger?.info("agent", "Process reattached successfully", {
 				agentId,
@@ -2157,6 +2276,7 @@ export class AgentManager {
 		runtime.process.stop();
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
+		this.fullHistoryAgents.delete(agentId);
 		this.emitState();
 
 		// 用相同的 session 重新创建 agent，新进程会重新加载所有配置
@@ -2262,7 +2382,10 @@ export class AgentManager {
 		const state = stateResponse.data as { sessionFile?: string; sessionName?: string } | undefined;
 		if (state?.sessionFile) runtime.tab.sessionPath = state.sessionFile;
 		if (state?.sessionName) runtime.tab.title = state.sessionName;
+		this.fullHistoryAgents.delete(agentId);
 		await this.loadMessages(agentId).catch(() => undefined);
+		// fork/clone/switch 也可能切换到已压缩会话；替换后同样恢复完整 UI 历史。
+		await this.restoreFullHistoryIfNeeded(agentId).catch(() => undefined);
 		this.emitState();
 	}
 
@@ -2316,6 +2439,7 @@ export class AgentManager {
 		const process = runtime.process;
 		this.agents.delete(agentId);
 		this.messages.delete(agentId);
+		this.fullHistoryAgents.delete(agentId);
 		// agent 关闭时自动关闭 RPC 日志记录
 		this.rpcLoggingAgents.delete(agentId);
 		// 清理缓存观测状态
@@ -2354,6 +2478,7 @@ export class AgentManager {
 		}
 		this.agents.clear();
 		this.messages.clear();
+		this.fullHistoryAgents.clear();
 		// 清理缓存观测状态
 		this.lastTurnUsage.clear();
 		this.currentModelSignature.clear();
@@ -2455,7 +2580,7 @@ export class AgentManager {
 				// 刷新完成后才根据压缩后的当前上下文生成标题。
 				// 手动 compaction 由 compact() 的后台刷新统一处理，避免重复发两个慢 RPC。
 				if (!isManualCompaction) {
-					void this.loadMessages(agentId)
+					void this.loadMessages(agentId, false, undefined, { restoreFullHistory: true })
 						.catch(() => undefined)
 						.finally(() => this.scheduleAutoTitleRefresh(agentId, "compaction"));
 				}
@@ -3553,7 +3678,7 @@ export class AgentManager {
 						agentId,
 						role: "user" as const,
 						text,
-						timestamp: typed.timestamp ?? Date.now(),
+						timestamp: this.normalizeHistoryTimestamp(typed.timestamp),
 						meta: {
 							...(currentEntryId ? { entryId: currentEntryId } : {}),
 							// 保留 _piDeckMsgSeq 作为旧版本回退兼容
@@ -3575,7 +3700,7 @@ export class AgentManager {
 						agentId,
 						role: "assistant" as const,
 						text,
-						timestamp: typed.timestamp ?? Date.now(),
+						timestamp: this.normalizeHistoryTimestamp(typed.timestamp),
 						meta: {
 							...(currentEntryId ? { entryId: currentEntryId } : {}),
 							_piDeckMsgSeq: index,
@@ -3656,7 +3781,7 @@ export class AgentManager {
 						agentId,
 						role: "tool" as const,
 						text: `${isError ? "✗" : "✓"} ${toolName}`,
-						timestamp: typed.timestamp ?? Date.now(),
+						timestamp: this.normalizeHistoryTimestamp(typed.timestamp),
 						meta: {
 							...(currentEntryId ? { entryId: currentEntryId } : {}),
 							_piDeckMsgSeq: index,
