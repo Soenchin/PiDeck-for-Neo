@@ -48,10 +48,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      # Pages 必须先在仓库 Settings → Pages 中手动启用为 GitHub Actions。
+      # 这里不调用 configure-pages 的自动 enablement，避免 GITHUB_TOKEN 权限不足。
 
       - name: Build documentation site
         run: npm run docs:build
