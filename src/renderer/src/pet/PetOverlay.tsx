@@ -4,11 +4,13 @@ import { type SpriteSheet, MODE_ROW, MODE_FRAMES, CELL_W, CELL_H } from "./PetSp
 
 /**
  * Canvas + requestAnimationFrame 精灵动画，GPU 绘制零 React re-render 开销。
- * 统一帧率 12fps / 8fps(idle)，通知气泡直接在 Canvas 顶部绘制。
+ * 大多数动作保持 12fps；工作与跳跃使用较慢节奏，避免高频循环显得急促。
+ * 通知气泡直接在 Canvas 顶部绘制。
  */
 
 const DEFAULT_FPS = 12;
 const IDLE_FPS = 8;
+const SLOW_ACTION_FPS = 4;
 const PAUSE_MS: Record<string, number> = { idle: 3000, failed: 4000 };
 
 type Props = {
@@ -57,7 +59,9 @@ export function PetOverlay({ sprite, state, dragging, notification }: Props) {
 				? MODE_ROW["running-right"]
 				: MODE_ROW[mode] ?? 0;
 		const totalFrames = MODE_FRAMES[mode] ?? 8;
-		const fps = mode === "idle" ? IDLE_FPS : DEFAULT_FPS;
+		const fps = mode === "idle"
+			? IDLE_FPS
+			: (mode === "running" || mode === "jumping" ? SLOW_ACTION_FPS : DEFAULT_FPS);
 		const frameMs = 1000 / fps;
 		const pauseMs = PAUSE_MS[mode] ?? 0;
 

@@ -89,6 +89,8 @@ export class PiLocator {
       const base = {
         ...process.env,
         PATH: pathPrefix || process.env.PATH || "",
+        // Pi 0.81.1 支持 long retention；外部显式设置时保留覆盖能力，便于兼容性回退。
+        PI_CACHE_RETENTION: process.env.PI_CACHE_RETENTION ?? "long",
       };
       return this.applyPiProxyEnv(base, settings);
     }
@@ -98,6 +100,8 @@ export class PiLocator {
     const env = {
       ...process.env,
       PATH: searchDirs.join(delimiter),
+      // 第三方 provider 是否真正提供长期缓存由网关决定；Pi 只负责发送 long 策略。
+      PI_CACHE_RETENTION: process.env.PI_CACHE_RETENTION ?? "long",
     };
 
     return this.applyPiProxyEnv(env, settings);
