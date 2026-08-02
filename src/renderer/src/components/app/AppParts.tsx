@@ -588,8 +588,11 @@ const DAILY_BUDGET_CAP = 3;
 type StatusRingVariant = "balance" | "budget" | "cache";
 type StatusRingState = "normal" | "warning" | "danger" | "overflow";
 
-function formatUsageMoney(value?: number | null) {
-	return value == null ? "—" : `$${value.toFixed(2)}`;
+function formatUsageMoney(value?: number | null, unit = "USD") {
+	if (value == null) return "—";
+	const normalizedUnit = unit.toUpperCase();
+	const symbol = normalizedUnit === "CNY" || normalizedUnit === "RMB" ? "¥" : "$";
+	return `${symbol}${value.toFixed(2)}`;
 }
 
 function formatUsageTime(value?: string) {
@@ -709,6 +712,10 @@ export function SessionStatus(props: {
 		return t(keyMap[reason]);
 	};
 
+	const usageUnit = usage?.unit ?? "USD";
+	const costUnit = usage?.costUnit ?? usageUnit;
+	const formatBalanceMoney = (value?: number | null) => formatUsageMoney(value, usageUnit);
+	const formatCostMoney = (value?: number | null) => formatUsageMoney(value, costUnit);
 	const todayUsage = usage?.todayActualCost ?? usage?.todayCost;
 	const totalUsage = usage?.totalActualCost ?? usage?.totalCost;
 	const balance = usage?.balance;
@@ -733,10 +740,10 @@ export function SessionStatus(props: {
 			: "normal";
 	const dailyRemaining = todayUsage == null ? null : DAILY_BUDGET_CAP - todayUsage;
 	const dailyMeta = dailyRemaining == null
-		? t("app.statusRingTodayBudget", { cap: DAILY_BUDGET_CAP })
+		? t("app.statusRingTodayBudget", { cap: formatCostMoney(DAILY_BUDGET_CAP) })
 		: dailyRemaining >= 0
-			? t("app.statusRingTodayRemaining", { amount: formatUsageMoney(dailyRemaining) })
-			: t("app.statusRingTodayOver", { amount: formatUsageMoney(Math.abs(dailyRemaining)) });
+			? t("app.statusRingTodayRemaining", { amount: formatCostMoney(dailyRemaining) })
+			: t("app.statusRingTodayOver", { amount: formatCostMoney(Math.abs(dailyRemaining)) });
 	const cacheRingValue = state.cacheHitPercent;
 	const hasUsageRings = balanceProgress != null || dailyProgress != null || cacheRingValue != null;
 
@@ -774,10 +781,10 @@ export function SessionStatus(props: {
 									<div className="session-status-details-rings" aria-label={t("app.statusUsageRings")}>
 										<div className="session-status-details-rings-circles">
 											<div className="session-status-details-ring-slot">
-												{balanceProgress != null ? <StatusUsageRing progress={balanceProgress} displayValue={formatUsageMoney(balance)} label={t("app.statusRingBalance")} meta={t("app.statusRingBalanceCap", { cap: ACCOUNT_BALANCE_CAP })} size="primary" variant="balance" state={balanceState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
+												{balanceProgress != null ? <StatusUsageRing progress={balanceProgress} displayValue={formatBalanceMoney(balance)} label={t("app.statusRingBalance")} meta={t("app.statusRingBalanceCap", { cap: formatBalanceMoney(ACCOUNT_BALANCE_CAP) })} size="primary" variant="balance" state={balanceState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
 											</div>
 											<div className="session-status-details-ring-slot">
-												{dailyProgress != null ? <StatusUsageRing progress={dailyProgress} displayValue={formatUsageMoney(todayUsage)} label={t("app.statusRingToday")} meta={dailyMeta} size="primary" variant="budget" state={dailyState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
+												{dailyProgress != null ? <StatusUsageRing progress={dailyProgress} displayValue={formatCostMoney(todayUsage)} label={t("app.statusRingToday")} meta={dailyMeta} size="primary" variant="budget" state={dailyState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
 											</div>
 											<div className="session-status-details-ring-slot">
 												{cacheRingValue != null ? <StatusUsageRing progress={cacheRingValue} displayValue={`${cacheRingValue.toFixed(1)}%`} label={t("app.statusRingCache")} meta="100%" size="primary" variant="cache" /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
@@ -785,10 +792,10 @@ export function SessionStatus(props: {
 										</div>
 										<div className="session-status-details-rings-captions">
 											<div className="session-status-details-ring-caption-slot">
-												{balanceProgress != null && <StatusUsageRingCaption displayValue={formatUsageMoney(balance)} label={t("app.statusRingBalance")} meta={t("app.statusRingBalanceCap", { cap: ACCOUNT_BALANCE_CAP })} />}
+												{balanceProgress != null && <StatusUsageRingCaption displayValue={formatBalanceMoney(balance)} label={t("app.statusRingBalance")} meta={t("app.statusRingBalanceCap", { cap: formatBalanceMoney(ACCOUNT_BALANCE_CAP) })} />}
 											</div>
 											<div className="session-status-details-ring-caption-slot">
-												{dailyProgress != null && <StatusUsageRingCaption displayValue={formatUsageMoney(todayUsage)} label={t("app.statusRingToday")} meta={dailyMeta} />}
+												{dailyProgress != null && <StatusUsageRingCaption displayValue={formatCostMoney(todayUsage)} label={t("app.statusRingToday")} meta={dailyMeta} />}
 											</div>
 											<div className="session-status-details-ring-caption-slot">
 												{cacheRingValue != null && <StatusUsageRingCaption displayValue={`${cacheRingValue.toFixed(1)}%`} label={t("app.statusRingCache")} meta="100%" />}
@@ -806,9 +813,9 @@ export function SessionStatus(props: {
 									{usage && (
 										<section className="session-status-details-section session-status-details-usage-section">
 											<div className="session-status-details-section-title">{t("app.usageAccountOverview")}</div>
-											<div className="session-status-details-row session-status-details-row-emphasis"><span>{t("app.usageBalance")}</span><strong>{formatUsageMoney(balance)}</strong></div>
-											<div className="session-status-details-row"><span>{t("app.usageToday")}</span><strong>{formatUsageMoney(todayUsage)}</strong></div>
-											<div className="session-status-details-row"><span>{t("app.usageTotal")}</span><strong>{formatUsageMoney(totalUsage)}</strong></div>
+											<div className="session-status-details-row session-status-details-row-emphasis"><span>{t("app.usageBalance")}</span><strong>{formatBalanceMoney(balance)}</strong></div>
+											<div className="session-status-details-row"><span>{t("app.usageToday")}</span><strong>{formatCostMoney(todayUsage)}</strong></div>
+											<div className="session-status-details-row"><span>{t("app.usageTotal")}</span><strong>{formatCostMoney(totalUsage)}</strong></div>
 											{usage.todayRequests != null && <div className="session-status-details-row"><span>{t("app.usageTodayRequests")}</span><strong>{formatCompact(usage.todayRequests)}</strong></div>}
 											{usage.todayTokens != null && <div className="session-status-details-row"><span>{t("app.usageTodayTokens")}</span><strong>{formatCompact(usage.todayTokens)}</strong></div>}
 											{usage.totalTokens != null && <div className="session-status-details-row"><span>{t("app.usageTotalTokens")}</span><strong>{formatCompact(usage.totalTokens)}</strong></div>}

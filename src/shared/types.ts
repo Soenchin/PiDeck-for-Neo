@@ -269,6 +269,8 @@ export type ProviderUsageSnapshot = {
 	/** 当前查询的 provider，不包含 API Key 或账户敏感信息。 */
 	providerId: string;
 	unit: string;
+	/** 估算费用的币种；未提供时 renderer 回退到 unit。 */
+	costUnit?: string;
 	/** 当前账户剩余余额，优先取 balance，缺失时由主进程回退 remaining。 */
 	balance: number | null;
 	todayActualCost: number | null;

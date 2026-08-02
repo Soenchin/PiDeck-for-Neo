@@ -1402,7 +1402,11 @@ export function App() {
 
   const refreshProviderUsage = useCallback(async () => {
     const providerId = activeRuntimeState?.provider;
-    if (!providerId?.toLowerCase().startsWith("sx-")) {
+    const normalizedProviderId = providerId?.toLowerCase();
+    const supportsUsage = normalizedProviderId?.startsWith("sx-") ||
+      normalizedProviderId?.startsWith("deepseek-") ||
+      normalizedProviderId === "deepseek";
+    if (!providerId || !supportsUsage) {
       setProviderUsage(null);
       return;
     }
@@ -1415,7 +1419,7 @@ export function App() {
       if (requestId === providerUsageRefreshRef.current) {
         setProviderUsage((current) => current ?? {
           providerId,
-          unit: "USD",
+          unit: normalizedProviderId === "deepseek" || normalizedProviderId?.startsWith("deepseek-") ? "CNY" : "USD",
           balance: null,
           todayActualCost: null,
           totalActualCost: null,
@@ -1439,7 +1443,11 @@ export function App() {
   }, [activeRuntimeState?.provider]);
 
   useEffect(() => {
-    if (!activeRuntimeState?.provider?.toLowerCase().startsWith("sx-")) {
+    const normalizedProviderId = activeRuntimeState?.provider?.toLowerCase();
+    const supportsUsage = normalizedProviderId?.startsWith("sx-") ||
+      normalizedProviderId?.startsWith("deepseek-") ||
+      normalizedProviderId === "deepseek";
+    if (!supportsUsage) {
       setProviderUsage(null);
       return;
     }
@@ -1461,6 +1469,14 @@ export function App() {
       setProviderUsageLoading(false);
     };
   }, [activeRuntimeState?.provider, refreshProviderUsage]);
+
+  // DeepSeek 的今日用量来自本地 session；每轮完成后立即重扫，SX 仍保持 60 秒账户刷新节奏。
+  useEffect(() => {
+    const normalizedProviderId = activeRuntimeState?.provider?.toLowerCase();
+    const isDeepSeek = normalizedProviderId === "deepseek" || normalizedProviderId?.startsWith("deepseek-");
+    if (!isDeepSeek || activeRuntimeState?.cacheLastTurn?.observedAt == null) return;
+    void refreshProviderUsage();
+  }, [activeRuntimeState?.provider, activeRuntimeState?.cacheLastTurn?.observedAt, refreshProviderUsage]);
 
   // 消息分页:超过 100 条消息时启用,大幅减少输入卡顿
   // 首屏 100 条,每次加载 100 条,一页一页懒加载
