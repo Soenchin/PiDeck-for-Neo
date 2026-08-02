@@ -90,6 +90,17 @@
   --color-chat-control-bg: #ffffff;
   --color-chat-table-bg: #ffffff;
   --color-chat-link: #2762ea;
+  /* 状态详情采用独立的深色监控面板；三类指标用低饱和冷色区分，警示才使用暖橙。 */
+  --status-panel-bg: #070d11;
+  --status-panel-muted-bg: rgba(255, 255, 255, 0.035);
+  --status-panel-text: #f4f7f8;
+  --status-panel-muted: #a7b0b7;
+  --status-panel-accent: #9bd8cf;
+  --status-ring-balance: #66d9c2;
+  --status-ring-budget: #e6b566;
+  --status-ring-cache: #aaa0ef;
+  --status-ring-alert: #e58b5b;
+  --status-ring-track: rgba(255, 255, 255, 0.11);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -353,6 +364,16 @@
   --color-chat-control-bg: #1d2024;
   --color-chat-table-bg: #1d2024;
   --color-chat-link: #93c5fd;
+  --status-panel-bg: #070d11;
+  --status-panel-muted-bg: rgba(255, 255, 255, 0.035);
+  --status-panel-text: #f4f7f8;
+  --status-panel-muted: #a7b0b7;
+  --status-panel-accent: #9bd8cf;
+  --status-ring-balance: #66d9c2;
+  --status-ring-budget: #e6b566;
+  --status-ring-cache: #aaa0ef;
+  --status-ring-alert: #e58b5b;
+  --status-ring-track: rgba(255, 255, 255, 0.11);
   --shadow-border: 0 0 0 1px rgba(255, 255, 255, 0.06);
   --shadow-popover: 0 14px 36px rgba(0, 0, 0, 0.38);
   --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.55);
@@ -9594,23 +9615,49 @@ body.is-composer-resizing .composer-resize-handle::after {
   -webkit-app-region: no-drag;
 }
 .session-status-details-trigger {
-  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
   padding: 0 9px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--color-bg-panel) 82%, transparent);
-  color: var(--color-text-tertiary);
-  font-family: var(--font-family-business);
+  border: 1px solid color-mix(in srgb, var(--status-panel-text) 16%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--status-panel-bg);
+  color: var(--status-panel-muted);
+  font-family: var(--font-family-base);
   font-size: var(--font-size-caption);
-  font-variant-numeric: tabular-nums;
+  font-weight: 600;
   line-height: var(--line-height-caption);
   white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.session-status-details-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--status-panel-accent);
+}
+.session-status-details-trigger-chevron {
+  flex: 0 0 auto;
+  color: var(--status-panel-muted);
+  transition: transform 160ms ease;
 }
 .session-status-details-trigger:hover,
 .session-status-details-trigger[aria-expanded="true"] {
-  border-color: var(--color-border-default);
-  background: var(--color-bg-hover);
-  color: var(--color-text-secondary);
+  border-color: color-mix(in srgb, var(--status-panel-accent) 62%, transparent);
+  background: var(--status-panel-muted-bg);
+  color: var(--status-panel-text);
+}
+.session-status-details-trigger[aria-expanded="true"] .session-status-details-trigger-chevron {
+  transform: rotate(180deg);
+}
+.session-status-details-trigger:active {
+  border-color: var(--status-panel-accent);
+  background: color-mix(in srgb, var(--status-panel-accent) 12%, var(--status-panel-bg));
 }
 .session-status-details-trigger:focus-visible {
   outline: none;
@@ -9618,33 +9665,434 @@ body.is-composer-resizing .composer-resize-handle::after {
 }
 .session-status-details-popover {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
   z-index: 950;
-  min-width: 180px;
-  padding: 8px 10px;
-  border: 1px solid var(--color-border-default);
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 76px));
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--status-panel-text) 12%, transparent);
   border-radius: var(--radius-md);
-  background: var(--color-bg-panel);
+  background: var(--status-panel-bg);
   box-shadow: var(--shadow-popover);
-  color: var(--color-text-secondary);
-  font-family: var(--font-family-business);
+  color: var(--status-panel-muted);
+  font-family: var(--font-family-base);
   font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
   -webkit-app-region: no-drag;
+}
+.session-status-details-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 2px var(--space-3);
+  border-bottom: 1px solid color-mix(in srgb, var(--status-panel-text) 12%, transparent);
+}
+.session-status-details-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.session-status-details-heading strong {
+  color: var(--status-panel-text);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: 700;
+}
+.session-status-details-heading span {
+  color: var(--status-panel-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+}
+.session-status-details-heading > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--color-accent);
+}
+.session-status-details-heading-actions > svg {
+  flex: 0 0 auto;
+  color: var(--status-panel-accent);
+}
+.session-status-details-heading > .session-status-details-heading-actions {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+.session-status-details-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--status-panel-text) 16%, transparent);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--status-panel-muted);
+  cursor: pointer;
+}
+.session-status-details-refresh:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--status-panel-accent) 58%, transparent);
+  background: var(--status-panel-muted-bg);
+  color: var(--status-panel-text);
+}
+.session-status-details-refresh:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.session-status-details-refresh:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.session-status-details-refresh .spinning {
+  animation: spin 1s linear infinite;
+}
+.session-status-details-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  padding-top: var(--space-3);
+}
+.session-status-details-layout-no-rings {
+  gap: 0;
+}
+.session-status-details-info {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  min-width: 0;
+  align-items: start;
+}
+.session-status-details-section {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--status-panel-text) 12%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+.session-status-details-section + .session-status-details-section {
+  margin-top: 0;
+}
+.session-status-details-section-title {
+  margin-bottom: 4px;
+  color: var(--status-panel-muted);
+  font-size: var(--font-size-micro);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: var(--line-height-micro);
+  text-transform: uppercase;
+}
+/* 独立整宽模型行：给模型名完整的横向空间，不和三列诊断信息争宽度。 */
+.session-status-details-current-model {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--status-panel-text) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--status-panel-text) 12%, transparent);
+  color: var(--status-panel-muted);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-control);
+  text-align: center;
+}
+.session-status-details-current-model > span {
+  flex: 0 0 auto;
+}
+.session-status-details-current-model strong {
+  min-width: 0;
+  color: var(--status-panel-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .session-status-details-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-4);
   align-items: center;
-  min-height: 22px;
+  min-height: 25px;
+}
+.session-status-details-row > span:first-child {
+  min-width: 0;
+  color: var(--status-panel-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .session-status-details-row strong {
-  color: var(--color-text-primary);
+  min-width: 0;
+  max-width: 210px;
+  overflow: hidden;
+  color: var(--status-panel-text);
+  font-family: var(--font-family-business);
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.session-status-details-row-emphasis strong {
+  color: var(--status-panel-accent);
+  font-size: var(--font-size-control);
+}
+.session-status-details-note {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: 5px;
+  margin-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--status-panel-text) 13%, transparent);
+  color: var(--status-panel-muted);
+  line-height: var(--line-height-caption);
+}
+.session-status-details-note-label {
+  flex: 0 0 auto;
+}
+.session-status-details-note > span:last-child {
+  min-width: 0;
+  color: var(--color-warning);
+  text-align: right;
+  white-space: normal;
+}
+.session-status-details-rings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 4px var(--space-4);
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--status-panel-text) 12%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+/* 两行严格共用同一组三列：每个圆环只会落在自己的数据列正上方。 */
+.session-status-details-rings-circles,
+.session-status-details-rings-captions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: var(--space-3);
+  min-width: 0;
+}
+.session-status-details-rings-circles {
+  min-height: 112px;
+  align-items: end;
+}
+.session-status-details-rings-captions {
+  align-items: start;
+  min-height: 52px;
+}
+.session-status-details-ring-slot,
+.session-status-details-ring-caption-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+.session-status-details-ring-slot {
+  min-height: 112px;
+  align-items: flex-end;
+}
+.session-status-details-ring-empty {
+  display: block;
+  width: 52px;
+  height: 52px;
+}
+.session-status-details-ring-caption-slot {
+  min-height: 52px;
+}
+.session-status-details-usage-meta {
+  color: var(--color-text-tertiary);
+}
+.session-status-details-usage-error {
+  color: var(--color-warning);
+}
+.session-status-details-usage-error span {
+  color: inherit;
+}
+.status-usage-ring-balance .status-usage-ring-progress {
+  stroke: var(--status-ring-balance);
+}
+.status-usage-ring-budget .status-usage-ring-progress {
+  stroke: var(--status-ring-budget);
+}
+.status-usage-ring-cache .status-usage-ring-progress {
+  stroke: var(--status-ring-cache);
+}
+.status-usage-ring-warning .status-usage-ring-progress,
+.status-usage-ring-danger .status-usage-ring-progress,
+.status-usage-ring-overflow .status-usage-ring-progress {
+  stroke: var(--status-ring-alert);
+}
+.status-usage-ring-overflow::after,
+.status-usage-ring-danger::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px dashed color-mix(in srgb, var(--status-ring-alert) 60%, transparent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.status-usage-ring-danger::after {
+  inset: 5px;
+  border-style: solid;
+  opacity: 0.42;
+}
+.status-usage-ring-overflow::before,
+.status-usage-ring-danger::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-ring-alert);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-ring-alert) 18%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .status-usage-ring-overflow::after {
+    animation: status-ring-glint 2.8s ease-in-out infinite;
+  }
+  .status-usage-ring-danger::after {
+    animation: status-ring-alert 1.8s ease-in-out infinite;
+  }
+}
+@keyframes status-ring-glint {
+  0%, 100% { transform: scale(0.96); opacity: 0.35; }
+  50% { transform: scale(1.04); opacity: 0.8; }
+}
+@keyframes status-ring-alert {
+  0%, 100% { opacity: 0.28; }
+  50% { opacity: 0.7; }
+}
+.status-usage-ring {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+}
+.status-usage-ring-primary {
+  width: 100px;
+  height: 100px;
+}
+.status-usage-ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+.status-usage-ring circle {
+  fill: none;
+  stroke-width: 6;
+}
+.status-usage-ring-primary circle {
+  stroke-width: 6;
+}
+.status-usage-ring-track {
+  stroke: var(--status-ring-track);
+}
+.status-usage-ring-progress {
+  stroke-linecap: round;
+  transition: stroke-dashoffset 240ms ease;
+}
+.status-usage-ring-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  text-align: center;
+}
+.status-usage-ring-caption strong,
+.status-usage-ring-caption span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-usage-ring-caption strong {
+  color: var(--status-panel-text);
+  font-family: var(--font-family-business);
+  font-size: var(--font-size-control);
+  font-weight: 700;
+  line-height: var(--line-height-control);
+}
+.status-usage-ring-caption-label {
+  color: var(--status-panel-text);
+  font-size: var(--font-size-micro);
+  font-weight: 700;
+  line-height: var(--line-height-micro);
+}
+.status-usage-ring-caption-meta {
+  color: var(--status-panel-muted);
+  font-family: var(--font-family-business);
+  font-size: 10px;
+  line-height: var(--line-height-micro);
+}
+@media (max-width: 640px) {
+  .session-status-details-popover {
+    width: min(460px, calc(100vw - 24px));
+    padding: 12px;
+  }
+  .session-status-details-layout {
+    gap: var(--space-3);
+  }
+  .session-status-details-info {
+    grid-template-columns: 1fr;
+  }
+  .session-status-details-current-model {
+    justify-content: center;
+    padding-inline: 0;
+    text-align: center;
+  }
+  .session-status-details-rings {
+    gap: 4px;
+    padding-inline: 0;
+  }
+  .session-status-details-rings-circles,
+  .session-status-details-rings-captions {
+    column-gap: var(--space-2);
+  }
+  .session-status-details-rings-circles,
+  .session-status-details-ring-slot {
+    min-height: 96px;
+  }
+  .session-status-details-rings-captions,
+  .session-status-details-ring-caption-slot {
+    min-height: 48px;
+  }
+  .status-usage-ring-primary {
+    width: 88px;
+    height: 88px;
+  }
+  .status-usage-ring {
+    width: 44px;
+    height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-status-details-trigger,
+  .session-status-details-trigger-chevron,
+  .status-usage-ring-progress {
+    transition: none;
+  }
+}
+
 /* Git 分支融入遥测胶囊列：是可点控件，因此保留 no-drag。 */
 .session-status-accessory {
   display: inline-flex;

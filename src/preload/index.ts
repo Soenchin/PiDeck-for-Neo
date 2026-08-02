@@ -60,6 +60,7 @@ import type {
 	CreatePiPromptTemplateInput,
 	PiProxyTestResult,
 	PiUpdateCheckResult,
+	ProviderUsageSnapshot,
 	PiSkillListResult,
 	PiSkillSummary,
 	Project,
@@ -682,6 +683,11 @@ const api = {
 				ipcChannels.agentsRuntimeState,
 				agentId,
 			) as Promise<AgentRuntimeState>,
+		providerUsage: (providerId?: string) =>
+			ipcRenderer.invoke(
+				ipcChannels.providerUsage,
+				providerId,
+			) as Promise<ProviderUsageSnapshot>,
 		cycleModel: (agentId: string) =>
 			ipcRenderer.invoke(
 				ipcChannels.agentsCycleModel,

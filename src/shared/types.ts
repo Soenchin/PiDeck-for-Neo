@@ -265,6 +265,29 @@ export type CacheTurnObservation = {
 	reason?: CacheMissReason;
 };
 
+export type ProviderUsageSnapshot = {
+	/** 当前查询的 provider，不包含 API Key 或账户敏感信息。 */
+	providerId: string;
+	unit: string;
+	/** 当前账户剩余余额，优先取 balance，缺失时由主进程回退 remaining。 */
+	balance: number | null;
+	todayActualCost: number | null;
+	totalActualCost: number | null;
+	todayCost: number | null;
+	totalCost: number | null;
+	todayRequests: number | null;
+	todayInputTokens: number | null;
+	todayOutputTokens: number | null;
+	todayTokens: number | null;
+	totalRequests: number | null;
+	totalTokens: number | null;
+	fetchedAt: string;
+	source: "actual_cost" | "cost" | "unavailable";
+	isValid: boolean | null;
+	/** 请求失败时保留上次成功数据，并通过此字段提示 renderer。 */
+	error?: string;
+};
+
 export type AgentRuntimeState = {
 	modelName?: string;
 	provider?: string;

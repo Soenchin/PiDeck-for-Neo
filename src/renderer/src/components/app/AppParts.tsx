@@ -48,6 +48,7 @@ function loadMermaid() {
 	return mermaidModulePromise;
 }
 import {
+	Activity,
 	AlertTriangle,
 	Check,
 	ChevronDown,
@@ -78,6 +79,7 @@ import {
 	X,
 	Star,
 	FolderOpen,
+	Gauge,
 } from "lucide-react";
 import { getFileIconSeti, getFileIconColor, getFileTypeLabel } from "../../fileIcons";
 import { t, type TranslationKey } from "../../i18n";
@@ -112,6 +114,7 @@ import type {
 	PiInstallStatus,
 	PiUpdateCheckResult,
 	Project,
+	ProviderUsageSnapshot,
 	SessionSummary,
 } from "../../../../shared/types";
 import { parseRichInputChips, type RichInputChip } from "./RichInput";
@@ -579,9 +582,76 @@ export function EnvironmentDialog(props: {
 	);
 }
 
+const ACCOUNT_BALANCE_CAP = 60;
+const DAILY_BUDGET_CAP = 3;
+
+type StatusRingVariant = "balance" | "budget" | "cache";
+type StatusRingState = "normal" | "warning" | "danger" | "overflow";
+
+function formatUsageMoney(value?: number | null) {
+	return value == null ? "—" : `$${value.toFixed(2)}`;
+}
+
+function formatUsageTime(value?: string) {
+	if (!value) return "—";
+	const date = new Date(value);
+	return Number.isNaN(date.getTime())
+		? "—"
+		: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function StatusUsageRing(props: {
+	progress: number;
+	displayValue: string;
+	label: string;
+	meta?: string;
+	size?: "primary" | "small";
+	variant: StatusRingVariant;
+	state?: StatusRingState;
+}) {
+	const progress = Math.max(0, Math.min(100, props.progress));
+	const size = props.size ?? "small";
+	const state = props.state ?? "normal";
+	const radius = size === "primary" ? 38 : 27;
+	const circumference = 2 * Math.PI * radius;
+	const dashOffset = circumference * (1 - progress / 100);
+
+	return (
+		<div
+			className={`status-usage-ring status-usage-ring-${size} status-usage-ring-${props.variant} status-usage-ring-${state}`}
+			role="img"
+			aria-label={`${props.label}: ${props.displayValue}${props.meta ? `, ${props.meta}` : ""}`}
+		>
+			<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+				<circle className="status-usage-ring-track" cx="50" cy="50" r={radius} />
+				<circle
+					className="status-usage-ring-progress"
+					cx="50"
+					cy="50"
+					r={radius}
+					style={{ strokeDasharray: circumference, strokeDashoffset: dashOffset }}
+				/>
+			</svg>
+		</div>
+	);
+}
+
+function StatusUsageRingCaption(props: { displayValue: string; label: string; meta?: string }) {
+	return (
+		<div className="status-usage-ring-caption">
+			<strong>{props.displayValue}</strong>
+			<span className="status-usage-ring-caption-label">{props.label}</span>
+			{props.meta && <span className="status-usage-ring-caption-meta">{props.meta}</span>}
+		</div>
+	);
+}
+
 export function SessionStatus(props: {
 	state?: AgentRuntimeState;
 	duration?: number;
+	providerUsage?: ProviderUsageSnapshot | null;
+	providerUsageLoading?: boolean;
+	onRefreshProviderUsage?: () => void;
 	/** 可交互的轻量状态项（例如 Git 分支），随遥测胶囊并排展示。 */
 	accessory?: ReactNode;
 }) {
@@ -589,21 +659,28 @@ export function SessionStatus(props: {
 	const [detailsOpen, setDetailsOpen] = useState(false);
 	const detailsRef = useRef<HTMLDivElement>(null);
 	const detailsId = useId();
+	const usage = props.providerUsage;
 	const hasDetails = Boolean(
 		state &&
-			(state.cacheHitPercent != null ||
+			(state.modelName != null ||
+				state.contextPercent != null ||
+				state.contextTokens != null ||
+				state.contextWindow != null ||
+				state.inputTokens != null ||
+				state.outputTokens != null ||
+				state.cacheHitPercent != null ||
+				state.cacheLastTurn != null ||
 				state.cacheTotal != null ||
 				state.cacheRead != null ||
 				state.cacheWrite != null ||
-				state.cost != null),
+				state.cost != null ||
+				usage != null),
 	);
 
 	useEffect(() => {
 		if (!detailsOpen) return;
 		const handlePointerDown = (event: MouseEvent) => {
-			if (detailsRef.current && !detailsRef.current.contains(event.target as Node)) {
-				setDetailsOpen(false);
-			}
+			if (detailsRef.current && !detailsRef.current.contains(event.target as Node)) setDetailsOpen(false);
 		};
 		const handleKeyDown = (event: KeyboardEvent) => {
 			if (event.key === "Escape") setDetailsOpen(false);
@@ -616,11 +693,8 @@ export function SessionStatus(props: {
 		};
 	}, [detailsOpen]);
 
-	if (!state) {
-		return props.accessory ? <div className="session-status">{props.accessory}</div> : null;
-	}
+	if (!state) return props.accessory ? <div className="session-status">{props.accessory}</div> : null;
 
-	// 格式化缩存 miss 原因文案
 	const formatCacheMissReason = (reason?: CacheMissReason): string | undefined => {
 		if (!reason) return undefined;
 		const keyMap: Record<CacheMissReason, TranslationKey> = {
@@ -635,85 +709,136 @@ export function SessionStatus(props: {
 		return t(keyMap[reason]);
 	};
 
+	const todayUsage = usage?.todayActualCost ?? usage?.todayCost;
+	const totalUsage = usage?.totalActualCost ?? usage?.totalCost;
+	const balance = usage?.balance;
+	const balanceProgress = balance == null ? null : Math.max(0, Math.min(100, (balance / ACCOUNT_BALANCE_CAP) * 100));
+	const balanceState: StatusRingState = balance != null && balance > ACCOUNT_BALANCE_CAP
+		? "overflow"
+		: balance != null && balance < 1
+			? "danger"
+			: balance != null && balance < 10
+				? "warning"
+				: "normal";
+	const dailyOverBudget = todayUsage != null && todayUsage > DAILY_BUDGET_CAP;
+	const dailyProgress = todayUsage == null
+		? null
+		: dailyOverBudget
+			? 100
+			: Math.max(0, ((DAILY_BUDGET_CAP - todayUsage) / DAILY_BUDGET_CAP) * 100);
+	const dailyState: StatusRingState = dailyOverBudget
+		? "danger"
+		: todayUsage != null && todayUsage >= DAILY_BUDGET_CAP * 0.8
+			? "warning"
+			: "normal";
+	const dailyRemaining = todayUsage == null ? null : DAILY_BUDGET_CAP - todayUsage;
+	const dailyMeta = dailyRemaining == null
+		? t("app.statusRingTodayBudget", { cap: DAILY_BUDGET_CAP })
+		: dailyRemaining >= 0
+			? t("app.statusRingTodayRemaining", { amount: formatUsageMoney(dailyRemaining) })
+			: t("app.statusRingTodayOver", { amount: formatUsageMoney(Math.abs(dailyRemaining)) });
+	const cacheRingValue = state.cacheHitPercent;
+	const hasUsageRings = balanceProgress != null || dailyProgress != null || cacheRingValue != null;
+
 	return (
 		<div className="session-status">
 			{state.contextPercent != null && (
-				<span
-					className="ctx-chip"
-					title={`${t("app.ctx")}: ${state.contextPercent.toFixed?.(1) ?? state.contextPercent}% / ${formatCompact(state.contextWindow)}  ↑ ${formatCompact(state.inputTokens)}  ↓ ${formatCompact(state.outputTokens)}`}
-				>
-					<span className="ctx-chip-main">
-						{(state.contextPercent.toFixed?.(1) ?? state.contextPercent)}%
-					</span>
+				<span className="ctx-chip" title={`${t("app.ctx")}: ${state.contextPercent.toFixed?.(1) ?? state.contextPercent}% / ${formatCompact(state.contextWindow)}  ↑ ${formatCompact(state.inputTokens)}  ↓ ${formatCompact(state.outputTokens)}`}>
+					<span className="ctx-chip-main">{(state.contextPercent.toFixed?.(1) ?? state.contextPercent)}%</span>
 					<span className="ctx-chip-sep" aria-hidden="true">·</span>
 					<span className="ctx-chip-window">{formatCompact(state.contextWindow)}</span>
 				</span>
 			)}
 			{hasDetails && (
 				<div className="session-status-details" ref={detailsRef}>
-					<button
-						type="button"
-						className="session-status-details-trigger"
-						onClick={() => setDetailsOpen((open) => !open)}
-						aria-expanded={detailsOpen}
-						aria-haspopup="dialog"
-						aria-controls={detailsId}
-						title={t("app.statusDetails")}
-					>
-						{t("app.statusDetails")}
+					<button type="button" className="session-status-details-trigger" onClick={() => setDetailsOpen((open) => !open)} aria-expanded={detailsOpen} aria-haspopup="dialog" aria-controls={detailsId} title={t("app.statusDetails")}>
+						<span className="session-status-details-trigger-icon" aria-hidden="true"><Activity size={14} strokeWidth={2.2} /></span>
+						<span className="session-status-details-trigger-label">{t("app.statusDetails")}</span>
+						<ChevronDown size={13} strokeWidth={2.2} aria-hidden="true" className="session-status-details-trigger-chevron" />
 					</button>
 					{detailsOpen && (
 						<div id={detailsId} className="session-status-details-popover" role="dialog" aria-label={t("app.statusDetails")}>
-							{state.cacheHitPercent != null && (
-								<div className="session-status-details-row">
-									<span>{t("app.cacheHit")}</span>
-									<strong>{state.cacheHitPercent.toFixed(1)}%</strong>
-								</div>
-							)}
-							{state.cacheLastTurn && (
-								<>
-									<div className="session-status-details-row">
-										<span>{t("app.cacheLastTurnHit")}</span>
-										<strong>
-											{state.cacheLastTurn.hitPercent != null
-												? `${state.cacheLastTurn.hitPercent.toFixed(1)}%`
-												: "-"}
-										</strong>
-									</div>
-									{state.cacheLastTurn.reason && (
-										<div className="session-status-details-row">
-											<span>{t("app.cacheMissReason")}</span>
-											<strong style={{ fontSize: "11px", color: "var(--color-text-tertiary)" }}>
-												{formatCacheMissReason(state.cacheLastTurn.reason)}
-											</strong>
-										</div>
+							<div className="session-status-details-heading">
+								<div><strong>{t("app.statusDetails")}</strong><span>{t("app.statusDetailsSubtitle")}</span></div>
+								<div className="session-status-details-heading-actions">
+									<Gauge size={17} aria-hidden="true" />
+									{usage && props.onRefreshProviderUsage && (
+										<button type="button" className="session-status-details-refresh" onClick={props.onRefreshProviderUsage} disabled={props.providerUsageLoading} title={t("app.usageRefresh")} aria-label={t("app.usageRefresh")}>
+											<RefreshCw size={14} className={props.providerUsageLoading ? "spinning" : ""} aria-hidden="true" />
+										</button>
 									)}
-								</>
-							)}
-							{state.cacheTotal != null && (
-								<div className="session-status-details-row">
-									<span>{t("app.cache")}</span>
-									<strong>{formatCompact(state.cacheTotal)}</strong>
 								</div>
-							)}
-							{state.cacheRead != null && (
-								<div className="session-status-details-row">
-									<span>{t("app.cacheRead")}</span>
-									<strong>{formatCompact(state.cacheRead)}</strong>
+							</div>
+							<div className={`session-status-details-layout${hasUsageRings ? "" : " session-status-details-layout-no-rings"}`}>
+								{hasUsageRings && (
+									<div className="session-status-details-rings" aria-label={t("app.statusUsageRings")}>
+										<div className="session-status-details-rings-circles">
+											<div className="session-status-details-ring-slot">
+												{balanceProgress != null ? <StatusUsageRing progress={balanceProgress} displayValue={formatUsageMoney(balance)} label={t("app.statusRingBalance")} meta={t("app.statusRingBalanceCap", { cap: ACCOUNT_BALANCE_CAP })} size="primary" variant="balance" state={balanceState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
+											</div>
+											<div className="session-status-details-ring-slot">
+												{dailyProgress != null ? <StatusUsageRing progress={dailyProgress} displayValue={formatUsageMoney(todayUsage)} label={t("app.statusRingToday")} meta={dailyMeta} size="primary" variant="budget" state={dailyState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
+											</div>
+											<div className="session-status-details-ring-slot">
+												{cacheRingValue != null ? <StatusUsageRing progress={cacheRingValue} displayValue={`${cacheRingValue.toFixed(1)}%`} label={t("app.statusRingCache")} meta="100%" size="primary" variant="cache" /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
+											</div>
+										</div>
+										<div className="session-status-details-rings-captions">
+											<div className="session-status-details-ring-caption-slot">
+												{balanceProgress != null && <StatusUsageRingCaption displayValue={formatUsageMoney(balance)} label={t("app.statusRingBalance")} meta={t("app.statusRingBalanceCap", { cap: ACCOUNT_BALANCE_CAP })} />}
+											</div>
+											<div className="session-status-details-ring-caption-slot">
+												{dailyProgress != null && <StatusUsageRingCaption displayValue={formatUsageMoney(todayUsage)} label={t("app.statusRingToday")} meta={dailyMeta} />}
+											</div>
+											<div className="session-status-details-ring-caption-slot">
+												{cacheRingValue != null && <StatusUsageRingCaption displayValue={`${cacheRingValue.toFixed(1)}%`} label={t("app.statusRingCache")} meta="100%" />}
+											</div>
+										</div>
+									</div>
+								)}
+								{state.modelName && (
+									<div className="session-status-details-current-model" title={state.provider ? `${state.provider} / ${state.modelName}` : state.modelName}>
+										<span>{t("app.statusCurrentModelLabel")}</span>
+										<strong>{state.provider ? `${state.provider} / ${state.modelName}` : state.modelName}</strong>
+									</div>
+								)}
+								<div className="session-status-details-info">
+									{usage && (
+										<section className="session-status-details-section session-status-details-usage-section">
+											<div className="session-status-details-section-title">{t("app.usageAccountOverview")}</div>
+											<div className="session-status-details-row session-status-details-row-emphasis"><span>{t("app.usageBalance")}</span><strong>{formatUsageMoney(balance)}</strong></div>
+											<div className="session-status-details-row"><span>{t("app.usageToday")}</span><strong>{formatUsageMoney(todayUsage)}</strong></div>
+											<div className="session-status-details-row"><span>{t("app.usageTotal")}</span><strong>{formatUsageMoney(totalUsage)}</strong></div>
+											{usage.todayRequests != null && <div className="session-status-details-row"><span>{t("app.usageTodayRequests")}</span><strong>{formatCompact(usage.todayRequests)}</strong></div>}
+											{usage.todayTokens != null && <div className="session-status-details-row"><span>{t("app.usageTodayTokens")}</span><strong>{formatCompact(usage.todayTokens)}</strong></div>}
+											{usage.totalTokens != null && <div className="session-status-details-row"><span>{t("app.usageTotalTokens")}</span><strong>{formatCompact(usage.totalTokens)}</strong></div>}
+											{usage.totalRequests != null && <div className="session-status-details-row"><span>{t("app.usageTotalRequests")}</span><strong>{formatCompact(usage.totalRequests)}</strong></div>}
+											<div className="session-status-details-note session-status-details-usage-meta"><span>{usage.source === "actual_cost" ? t("app.usageActual") : usage.source === "cost" ? t("app.usageEstimated") : t("app.usageUnavailable")}</span><span>{t("app.usageUpdatedAt", { time: formatUsageTime(usage.fetchedAt) })}</span></div>
+											{(usage.error || usage.isValid === false) && <div className="session-status-details-note session-status-details-usage-error"><span>{usage.isValid === false ? t("app.usageInvalid") : usage.error}</span></div>}
+										</section>
+									)}
+									{(state.cacheHitPercent != null || state.cacheLastTurn || state.cacheTotal != null || state.cacheRead != null || state.cacheWrite != null) && (
+										<section className="session-status-details-section"><div className="session-status-details-section-title">{t("app.statusCacheOverview")}</div>
+											{state.cacheHitPercent != null && <div className="session-status-details-row session-status-details-row-emphasis"><span>{t("app.cacheHit")}</span><strong>{state.cacheHitPercent.toFixed(1)}%</strong></div>}
+											{state.cacheLastTurn && <div className="session-status-details-row"><span>{t("app.cacheLastTurnHit")}</span><strong>{state.cacheLastTurn.hitPercent != null ? `${state.cacheLastTurn.hitPercent.toFixed(1)}%` : "-"}</strong></div>}
+											{state.cacheLastTurn?.reason && <div className="session-status-details-note"><span className="session-status-details-note-label">{t("app.cacheMissReason")}</span><span>{formatCacheMissReason(state.cacheLastTurn.reason)}</span></div>}
+											{state.cacheTotal != null && <div className="session-status-details-row"><span>{t("app.cache")}</span><strong>{formatCompact(state.cacheTotal)}</strong></div>}
+											{state.cacheRead != null && <div className="session-status-details-row"><span>{t("app.cacheRead")}</span><strong>{formatCompact(state.cacheRead)}</strong></div>}
+											{state.cacheWrite != null && <div className="session-status-details-row"><span>{t("app.cacheWrite")}</span><strong>{formatCompact(state.cacheWrite)}</strong></div>}
+										</section>
+									)}
+									{(state.contextPercent != null || state.contextTokens != null || state.contextWindow != null || state.inputTokens != null || state.outputTokens != null || state.cost != null) && (
+										<section className="session-status-details-section"><div className="session-status-details-section-title">{t("app.statusUsageOverview")}</div>
+											{state.contextPercent != null && <div className="session-status-details-row session-status-details-row-emphasis"><span>{t("app.statusContextUsage")}</span><strong>{state.contextPercent.toFixed(1)}%</strong></div>}
+											{(state.contextTokens != null || state.contextWindow != null) && <div className="session-status-details-row"><span>{t("app.statusContextTokens")}</span><strong>{formatCompact(state.contextTokens)} / {formatCompact(state.contextWindow)}</strong></div>}
+											{state.inputTokens != null && <div className="session-status-details-row"><span>{t("app.statusInputTokens")}</span><strong>{formatCompact(state.inputTokens)}</strong></div>}
+											{state.outputTokens != null && <div className="session-status-details-row"><span>{t("app.statusOutputTokens")}</span><strong>{formatCompact(state.outputTokens)}</strong></div>}
+											{state.cost != null && <div className="session-status-details-row"><span>{t("app.totalCost")}</span><strong>${state.cost.toFixed(3)}</strong></div>}
+										</section>
+									)}
 								</div>
-							)}
-							{state.cacheWrite != null && (
-								<div className="session-status-details-row">
-									<span>{t("app.cacheWrite")}</span>
-									<strong>{formatCompact(state.cacheWrite)}</strong>
-								</div>
-							)}
-							{state.cost != null && (
-								<div className="session-status-details-row">
-									<span>{t("app.totalCost")}</span>
-									<strong>${state.cost.toFixed(3)}</strong>
-								</div>
-							)}
+
+							</div>
 						</div>
 					)}
 				</div>

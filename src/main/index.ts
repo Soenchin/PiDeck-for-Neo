@@ -93,6 +93,7 @@ import { applyDesktopProxy } from "./settings/DesktopProxy";
 import { GitService } from "./git/GitService";
 import { WorktreeService } from "./git/WorktreeService";
 import { ConfigManager } from "./config/ConfigManager";
+import { SxUsageService } from "./usage/SxUsageService";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
 import { TelemetryService } from "./telemetry/TelemetryService";
 import { PromptManager } from "./prompts/PromptManager";
@@ -149,6 +150,7 @@ let gitService: GitService;
 let piLocator: PiLocator;
 let agentManager: AgentManager;
 let configManager: ConfigManager;
+let sxUsageService: SxUsageService;
 let promptManager: PromptManager;
 let yaoPromptManager: YaoPromptManager;
 let skillManager: SkillManager;
@@ -2692,6 +2694,9 @@ function registerIpc() {
 	ipcMain.handle(ipcChannels.agentsRuntimeState, (_event, agentId: string) =>
 		agentManager.getRuntimeState(agentId),
 	);
+	ipcMain.handle(ipcChannels.providerUsage, (_event, providerId?: string) =>
+		sxUsageService.fetchForProvider(providerId),
+	);
 	ipcMain.handle(ipcChannels.agentsCycleModel, (_event, agentId: string) =>
 		agentManager.cycleModel(agentId),
 	);
@@ -2924,6 +2929,7 @@ app.whenReady().then(async () => {
 	worktreeService = new WorktreeService();
 	piLocator = new PiLocator();
 	configManager = new ConfigManager();
+	sxUsageService = new SxUsageService(configManager);
 	promptManager = new PromptManager();
 	yaoPromptManager = new YaoPromptManager();
 	skillManager = new SkillManager();

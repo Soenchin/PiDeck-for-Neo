@@ -118,6 +118,27 @@ export function createBrowserApi(): PiDesktopApi {
 		},
 		agents: {
 			...base.agents,
+			// LAN renderer 不接触 Electron 主进程配置，也不能调用 SX 账户接口；
+			// 返回不可用快照，避免把预览数据误显示成真实余额。
+			providerUsage: async (providerId?: string) => ({
+				providerId: providerId ?? "",
+				unit: "USD",
+				balance: null,
+				todayActualCost: null,
+				totalActualCost: null,
+				todayCost: null,
+				totalCost: null,
+				todayRequests: null,
+				todayInputTokens: null,
+				todayOutputTokens: null,
+				todayTokens: null,
+				totalRequests: null,
+				totalTokens: null,
+				fetchedAt: new Date().toISOString(),
+				source: "unavailable" as const,
+				isValid: null,
+				error: "Usage data is only available in the desktop window",
+			}),
 			list: async () => {
 				try {
 					return (await refreshState()).agents;

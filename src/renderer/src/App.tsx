@@ -214,6 +214,7 @@ import type {
   SessionSummary,
   ComposerAgentMode,
   ThinkingUpdate,
+  ProviderUsageSnapshot,
 } from "../../shared/types";
 
 const isLanWeb =
@@ -620,6 +621,9 @@ export function App() {
   const [runtimeStateByAgent, setRuntimeStateByAgent] = useState<
     Record<string, AgentRuntimeState>
   >({});
+  const [providerUsage, setProviderUsage] = useState<ProviderUsageSnapshot | null>(null);
+  const [providerUsageLoading, setProviderUsageLoading] = useState(false);
+  const providerUsageRefreshRef = useRef(0);
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [composerModePickerOpen, setComposerModePickerOpen] = useState(false);
@@ -1395,6 +1399,68 @@ export function App() {
   const activeRuntimeState = activeAgentId
     ? runtimeStateByAgent[activeAgentId]
     : undefined;
+
+  const refreshProviderUsage = useCallback(async () => {
+    const providerId = activeRuntimeState?.provider;
+    if (!providerId?.toLowerCase().startsWith("sx-")) {
+      setProviderUsage(null);
+      return;
+    }
+    const requestId = ++providerUsageRefreshRef.current;
+    setProviderUsageLoading(true);
+    try {
+      const snapshot = await api.agents.providerUsage(providerId);
+      if (requestId === providerUsageRefreshRef.current) setProviderUsage(snapshot);
+    } catch (error) {
+      if (requestId === providerUsageRefreshRef.current) {
+        setProviderUsage((current) => current ?? {
+          providerId,
+          unit: "USD",
+          balance: null,
+          todayActualCost: null,
+          totalActualCost: null,
+          todayCost: null,
+          totalCost: null,
+          todayRequests: null,
+          todayInputTokens: null,
+          todayOutputTokens: null,
+          todayTokens: null,
+          totalRequests: null,
+          totalTokens: null,
+          fetchedAt: new Date().toISOString(),
+          source: "unavailable",
+          isValid: null,
+          error: error instanceof Error ? error.message : t("app.usageFetchFailed"),
+        });
+      }
+    } finally {
+      if (requestId === providerUsageRefreshRef.current) setProviderUsageLoading(false);
+    }
+  }, [activeRuntimeState?.provider]);
+
+  useEffect(() => {
+    if (!activeRuntimeState?.provider?.toLowerCase().startsWith("sx-")) {
+      setProviderUsage(null);
+      return;
+    }
+    setProviderUsage(null);
+    const initialTimer = window.setTimeout(() => { void refreshProviderUsage(); }, 1500);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshProviderUsage();
+    }, 60_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void refreshProviderUsage();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      // Provider 切换时使未完成的旧请求失效，避免旧账户数据短暂覆盖新账户。
+      providerUsageRefreshRef.current += 1;
+      setProviderUsageLoading(false);
+    };
+  }, [activeRuntimeState?.provider, refreshProviderUsage]);
 
   // 消息分页:超过 100 条消息时启用,大幅减少输入卡顿
   // 首屏 100 条,每次加载 100 条,一页一页懒加载
@@ -5932,6 +5998,9 @@ ${goalTextRef.current}
                     ? sessionDurationByAgent[activeAgentId]
                     : undefined
                 }
+                providerUsage={providerUsage}
+                providerUsageLoading={providerUsageLoading}
+                onRefreshProviderUsage={() => void refreshProviderUsage()}
               />
               {appNotice && (
                 <div className="app-notice" role="status">

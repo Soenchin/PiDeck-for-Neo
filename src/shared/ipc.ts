@@ -146,6 +146,8 @@ export const ipcChannels = {
 	agentsRestart: "agents:restart",
 	agentsCompact: "agents:compact",
 	agentsRuntimeState: "agents:runtime-state",
+	/** 查询当前 SX Provider 的账户余额与用量，API Key 只在主进程使用。 */
+	providerUsage: "provider:usage",
 	agentsCycleModel: "agents:cycle-model",
 	agentsAvailableModels: "agents:available-models",
 	agentsSetModel: "agents:set-model",
