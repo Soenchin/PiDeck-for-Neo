@@ -728,8 +728,11 @@ export class AgentManager {
 			if (data?.sessionName && !this.getAutoTitleState(tab.sessionPath)) {
 				void this.lockAutoTitle(tab.sessionPath, data.sessionName);
 			}
+			// 优先使用 PiDeck 保存的标题（locked 或未锁定的自动标题），避免重启后丢失
+			const savedTitle = this.getAutoTitleState(tab.sessionPath)?.title;
 			tab.title =
 				input.title ||
+				savedTitle ||
 				data?.sessionName ||
 				(input.sessionPath
 					? `${project.name} 历史会话`
