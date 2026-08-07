@@ -1422,6 +1422,21 @@ const zhCN = {
     "开启后会在本机启动 HTTP 服务，局域网内其他设备可通过你的电脑 IP 和端口访问",
   "settings.webOffDesc": "关闭此开关会立即停止服务",
   "settings.webOpening": "服务状态切换中...",
+  "settings.webToken": "访问令牌",
+  "settings.webTokenDesc":
+    "手机首次打开需输入此令牌，也可用带 ?token= 的链接直达；请妥善保管",
+  "settings.webTokenCopy": "复制令牌",
+  "settings.webTokenCopied": "已复制访问令牌",
+  "settings.webTokenMissing": "开启服务后自动生成",
+  "webAuth.title": "连接 PiDeck",
+  "webAuth.desc":
+    "输入桌面端「设置 → Web 服务」中显示的访问令牌。手机与电脑需在同一局域网。",
+  "webAuth.tokenLabel": "访问令牌",
+  "webAuth.placeholder": "粘贴访问令牌",
+  "webAuth.submit": "连接",
+  "webAuth.checking": "连接中...",
+  "webAuth.invalid": "令牌不正确，请重新从桌面端设置复制",
+  "webAuth.networkError": "无法连接服务，请确认 PiDeck 正在运行且手机与电脑在同一网络",
   "settings.electronProxyHint":
     "用于 Electron 网络栈，多个条目可用逗号或分号分隔",
   "terminal.closeAll": "关闭全部",
@@ -2971,6 +2986,22 @@ const enUS: Record<TranslationKey, string> = {
     "Starts an HTTP service on this computer so devices on the LAN can access it by IP and port",
   "settings.webOffDesc": "Turning this off stops the service immediately",
   "settings.webOpening": "Changing service state...",
+  "settings.webToken": "Access token",
+  "settings.webTokenDesc":
+    "Phones need this token on first connect; links with ?token= also work. Keep it private.",
+  "settings.webTokenCopy": "Copy token",
+  "settings.webTokenCopied": "Access token copied",
+  "settings.webTokenMissing": "Generated when the service starts",
+  "webAuth.title": "Connect to PiDeck",
+  "webAuth.desc":
+    "Enter the access token shown under Settings → Web Service on the desktop. Your phone and computer must be on the same network.",
+  "webAuth.tokenLabel": "Access token",
+  "webAuth.placeholder": "Paste the access token",
+  "webAuth.submit": "Connect",
+  "webAuth.checking": "Connecting...",
+  "webAuth.invalid": "Invalid token. Copy it again from the desktop settings.",
+  "webAuth.networkError":
+    "Cannot reach the service. Make sure PiDeck is running and both devices share the same network.",
   "settings.electronProxyHint":
     "Used by Electron networking. Separate entries with commas or semicolons.",
   "terminal.closeAll": "Close All",

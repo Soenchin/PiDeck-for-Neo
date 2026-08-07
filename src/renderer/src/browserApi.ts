@@ -18,6 +18,76 @@ const stateListeners = new Set<(tabs: AgentTab[]) => void>();
 const messageListeners = new Set<(payload: { agentId: string; messages: ChatMessage[] }) => void>();
 let lastMessages = new Map<string, string>();
 
+// ── 局域网 Web 访问令牌 ─────────────────────────────────────────────────
+const WEB_TOKEN_STORAGE_KEY = "pideck-web-token";
+
+function readStoredToken(): string {
+	try {
+		return window.localStorage.getItem(WEB_TOKEN_STORAGE_KEY) ?? "";
+	} catch {
+		return "";
+	}
+}
+
+function persistToken(token: string) {
+	try {
+		if (token) window.localStorage.setItem(WEB_TOKEN_STORAGE_KEY, token);
+		else window.localStorage.removeItem(WEB_TOKEN_STORAGE_KEY);
+	} catch {
+		// 隐身模式等场景下 localStorage 不可用，令牌仅保留在内存中。
+	}
+}
+
+/**
+ * 支持桌面端复制的 `?token=...` 链接直达：消费后从地址栏移除，
+ * 避免令牌留在浏览历史里；随后回退到 localStorage 缓存。
+ */
+function consumeTokenFromUrl(): string {
+	try {
+		const params = new URLSearchParams(window.location.search);
+		const queryToken = params.get("token")?.trim() ?? "";
+		if (!queryToken) return readStoredToken();
+		params.delete("token");
+		const query = params.toString();
+		const nextUrl = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+		window.history.replaceState(null, "", nextUrl);
+		persistToken(queryToken);
+		return queryToken;
+	} catch {
+		return readStoredToken();
+	}
+}
+
+// 只有真正的 http(s) 网页环境才消费 URL 令牌；Electron/预览环境不受影响。
+let authToken = window.location.protocol.startsWith("http") ? consumeTokenFromUrl() : "";
+
+export function getWebAuthToken(): string {
+	return authToken;
+}
+
+export function setWebAuthToken(token: string) {
+	authToken = token.trim();
+	persistToken(authToken);
+}
+
+export type WebAuthResult = "ok" | "unauthorized" | "error";
+
+/** 用当前令牌探测服务：区分令牌错误和网络/服务不可用，供登录门槛展示不同提示。 */
+export async function verifyWebAuth(): Promise<WebAuthResult> {
+	if (!authToken) return "unauthorized";
+	try {
+		const response = await fetch("/api/state", {
+			headers: { authorization: `Bearer ${authToken}` },
+		});
+		if (response.status === 401 || response.status === 403) return "unauthorized";
+		if (!response.ok) return "error";
+		await response.json().catch(() => undefined);
+		return "ok";
+	} catch {
+		return "error";
+	}
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -33,8 +103,11 @@ function isWebState(value: unknown): value is WebState {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+	const headers: Record<string, string> = { "content-type": "application/json" };
+	// Web 服务全部 API 要求 Bearer 令牌；无令牌时服务端返回 401，由登录门槛接管。
+	if (authToken) headers.authorization = `Bearer ${authToken}`;
 	const response = await fetch(path, {
-		headers: { "content-type": "application/json" },
+		headers,
 		...init,
 	});
 	let data: unknown;

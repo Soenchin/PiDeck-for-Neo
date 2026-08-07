@@ -11267,6 +11267,49 @@ body.is-composer-resizing .composer-resize-handle::after {
 .web-endpoint-summary .ui-button {
   justify-self: end;
 }
+.web-token-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.web-token-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.web-token-value {
+  overflow-wrap: anywhere;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  color: var(--color-text-secondary);
+}
+
+/* 局域网 Web 访问令牌门槛：手机直连 Web 服务时的首屏 */
+.web-auth-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--color-bg-app);
+}
+.web-auth-card {
+  width: min(420px, 100%);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-modal);
+}
+.web-auth-title {
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  color: var(--color-text-primary);
+}
+.web-auth-desc {
+  color: var(--color-text-tertiary);
+  line-height: var(--line-height-body);
+}
 
 /* 代理面板 */
 .setting-proxy-panel {

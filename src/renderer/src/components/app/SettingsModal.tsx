@@ -103,6 +103,8 @@ export function SettingsModal(props: {
 			props.settings.inputFontSize !== null,
 	);
 	const [webPortDraft, setWebPortDraft] = useState(String(props.settings.webServicePort));
+	/** Web 访问令牌复制成功后的短暂提示态。 */
+	const [webTokenCopied, setWebTokenCopied] = useState(false);
 	const piPath = props.settings.customPiPath || props.piStatus?.command || "";
 	const changeZoomFactor = (delta: number) => {
 		const next = Math.min(
@@ -697,6 +699,30 @@ export function SettingsModal(props: {
 											}
 										>
 											{t("common.open")}
+										</Button>
+									</div>
+									{/* 访问令牌：手机端首次连接需要它；开启服务后由主进程自动生成。 */}
+									<div className="web-endpoint-summary web-token-row">
+										<div className="web-token-text">
+											<strong>{t("settings.webToken")}</strong>
+											<code className="web-token-value">
+												{props.settings.webServiceToken || t("settings.webTokenMissing")}
+											</code>
+											<small>{t("settings.webTokenDesc")}</small>
+										</div>
+										<Button
+											buttonSize="sm"
+											disabled={!props.settings.webServiceToken}
+											onClick={() => {
+												const token = props.settings.webServiceToken;
+												if (!token) return;
+												void navigator.clipboard.writeText(token).then(() => {
+													setWebTokenCopied(true);
+													window.setTimeout(() => setWebTokenCopied(false), 2000);
+												});
+											}}
+										>
+											{webTokenCopied ? t("settings.webTokenCopied") : t("settings.webTokenCopy")}
 										</Button>
 									</div>
 								</div>

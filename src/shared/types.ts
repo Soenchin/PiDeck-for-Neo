@@ -386,6 +386,8 @@ export type AppSettings = {
 	webServiceHost: string;
 	/** Web 服务监听端口 */
 	webServicePort: number;
+	/** Web 服务访问令牌：服务启用时自动生成并持久化，局域网 API 必须携带该令牌才能访问 */
+	webServiceToken?: string;
 	/** 本地生成的匿名安装标识，不包含账号、路径或机器名 */
 	telemetryInstallId?: string;
 	/** 最近一次发送 app_heartbeat 的本地日期，格式 YYYY-MM-DD */

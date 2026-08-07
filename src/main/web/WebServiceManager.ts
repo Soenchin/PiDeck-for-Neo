@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { existsSync } from "node:fs";
@@ -17,7 +18,7 @@ import type {
 
 type WebServiceSettings = Pick<
 	AppSettings,
-	"webServiceEnabled" | "webServiceHost" | "webServicePort"
+	"webServiceEnabled" | "webServiceHost" | "webServicePort" | "webServiceToken"
 >;
 
 type WebServiceDependencies = {
@@ -36,14 +37,30 @@ type WebServiceDependencies = {
 	setThinking: (agentId: string, level: string) => Promise<AgentRuntimeState>;
 };
 
+/** 单次请求体上限：手机端目前只发文本消息，预留长文本余量。 */
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
+/** 限流窗口与阈值：防止暴力猜测令牌，也防止异常客户端打爆服务。 */
+const RATE_WINDOW_MS = 60_000;
+const MAX_REQUESTS_PER_WINDOW = 1200;
+const MAX_AUTH_FAILURES_PER_WINDOW = 20;
+
+type RateWindow = { count: number; resetAt: number };
+
 export class WebServiceManager {
 	private server: Server | null = null;
 	private current: { host: string; port: number } | null = null;
 	private readonly rendererRoot = join(__dirname, "../renderer");
+	/** 访问令牌：所有非健康检查 API 必须携带 Bearer 令牌，无令牌时全部拒绝。 */
+	private authToken = "";
+	/** 按 IP 的请求量与鉴权失败计数，窗口过期后自动重置。 */
+	private readonly requestCounts = new Map<string, RateWindow>();
+	private readonly authFailureCounts = new Map<string, RateWindow>();
 
 	constructor(private readonly deps: WebServiceDependencies) {}
 
 	async applySettings(settings: WebServiceSettings) {
+		// 令牌先同步：即使 host/port 未变化、不重启服务器，新令牌也要立即生效。
+		this.authToken = typeof settings.webServiceToken === "string" ? settings.webServiceToken : "";
 		if (!settings.webServiceEnabled) {
 			await this.stop();
 			return;
@@ -71,7 +88,11 @@ export class WebServiceManager {
 			try {
 				await this.handleRequest(request, response, host, port, server);
 			} catch (error) {
-				this.sendError(response, 500, error instanceof Error ? error.message : String(error));
+				// readJson 会携带 statusCode（413/400），其余错误统一 500。
+				const statusCode = typeof (error as { statusCode?: unknown })?.statusCode === "number"
+					? (error as { statusCode: number }).statusCode
+					: 500;
+				this.sendError(response, statusCode, error instanceof Error ? error.message : String(error));
 			}
 		});
 
@@ -103,6 +124,12 @@ export class WebServiceManager {
 				return;
 			}
 
+			const clientIp = request.socket.remoteAddress ?? "unknown";
+			if (!this.allowRequest(clientIp)) {
+				this.sendError(response, 429, "请求过于频繁，请稍后再试");
+				return;
+			}
+
 			if (url.pathname === "/api/health") {
 				this.sendJson(response, {
 					ok: true,
@@ -112,6 +139,19 @@ export class WebServiceManager {
 				});
 				return;
 			}
+			// health 保留公开用于连通探测；其余 API 一律要求访问令牌。
+			if (url.pathname.startsWith("/api/")) {
+				if (!this.allowAuthAttempt(clientIp)) {
+					this.sendError(response, 429, "鉴权失败次数过多，请稍后再试");
+					return;
+				}
+				if (!this.isAuthorized(request)) {
+					this.recordAuthFailure(clientIp);
+					this.sendError(response, 401, "访问令牌缺失或不正确");
+					return;
+				}
+			}
+
 			if (url.pathname === "/api/state") {
 				this.sendJson(response, this.getState());
 				return;
@@ -119,17 +159,28 @@ export class WebServiceManager {
 			const sessionsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/sessions$/);
 			if (sessionsMatch && request.method === "GET") {
 				const sessions = await this.deps.listSessions(decodeURIComponent(sessionsMatch[1]));
-				this.sendJson(response, { sessions });
+				// 会话路径替换为不透明 ID，避免向网络客户端泄漏本机目录结构。
+				this.sendJson(response, { sessions: sessions.map((session) => this.toWebSession(session)) });
 				return;
 			}
 			if (url.pathname === "/api/agents" && request.method === "POST") {
-				const body = await this.readJson<{ projectId?: string }>(request);
+				const body = await this.readJson<{ projectId?: string; sessionPath?: string }>(request);
 				if (!body.projectId) {
 					this.sendError(response, 400, "projectId 不能为空");
 					return;
 				}
-				const agent = await this.deps.createAgent({ projectId: body.projectId });
-				this.sendJson(response, { agent });
+				// 打开历史 Session：只接受不透明会话 ID，由服务端反查真实文件；
+				// 绝不接受网络传入的原始路径，避免任意路径试探本机文件。
+				let sessionPath: string | undefined;
+				if (typeof body.sessionPath === "string" && body.sessionPath.trim()) {
+					sessionPath = await this.resolveWebSessionRef(body.projectId, body.sessionPath.trim());
+					if (!sessionPath) {
+						this.sendError(response, 404, "会话不存在或不属于该项目");
+						return;
+					}
+				}
+				const agent = await this.deps.createAgent({ projectId: body.projectId, sessionPath });
+				this.sendJson(response, { agent: this.toWebAgent(agent) });
 				return;
 			}
 			const promptMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/prompt$/);
@@ -201,7 +252,7 @@ export class WebServiceManager {
 	}
 
 	private getState() {
-		const agents = this.deps.listAgents();
+		const agents = this.deps.listAgents().map((agent) => this.toWebAgent(agent));
 		const messagesByAgent = Object.fromEntries(
 			agents.map((agent) => [agent.id, this.deps.getMessages(agent.id)]),
 		);
@@ -297,8 +348,22 @@ export class WebServiceManager {
 		let creatingProjectId = "";
 		let refreshing = false;
 		const el = (id) => document.getElementById(id);
+		function resolveAuthToken() {
+			const queryToken = new URLSearchParams(window.location.search).get("token");
+			if (queryToken) {
+				localStorage.setItem("pideck-web-token", queryToken);
+				return queryToken;
+			}
+			let token = localStorage.getItem("pideck-web-token") || "";
+			if (!token) {
+				token = window.prompt("请输入 PiDeck Web 服务访问令牌") || "";
+				if (token.trim()) localStorage.setItem("pideck-web-token", token.trim());
+			}
+			return token.trim();
+		}
+		const authToken = resolveAuthToken();
 		async function api(path, options) {
-			const res = await fetch(path, { headers: { "content-type": "application/json" }, ...options });
+			const res = await fetch(path, { headers: { "content-type": "application/json", authorization: "Bearer " + authToken }, ...options });
 			if (!res.ok) throw new Error((await res.json()).error || res.statusText);
 			return res.json();
 		}
@@ -466,10 +531,10 @@ export class WebServiceManager {
 	}
 
 	private sendJson(response: ServerResponse, body: unknown) {
+		// 不下发 CORS 头：同源页面正常调用，其他来源的网页无法跨域访问该服务。
 		response.writeHead(200, {
 			"content-type": "application/json; charset=utf-8",
 			"cache-control": "no-store",
-			"access-control-allow-origin": "*",
 		});
 		response.end(JSON.stringify(body));
 	}
@@ -478,27 +543,63 @@ export class WebServiceManager {
 		response.writeHead(statusCode, {
 			"content-type": "application/json; charset=utf-8",
 			"cache-control": "no-store",
-			"access-control-allow-origin": "*",
+			// 413 后连接会被主动断开，提前声明避免客户端继续复用该连接。
+			...(statusCode === 413 ? { connection: "close" } : {}),
 		});
 		response.end(JSON.stringify({ error }));
 	}
 
 	private sendNoContent(response: ServerResponse) {
-		response.writeHead(204, {
-			"access-control-allow-origin": "*",
-			"access-control-allow-methods": "GET,POST,OPTIONS",
-			"access-control-allow-headers": "content-type",
-		});
+		response.writeHead(204);
 		response.end();
 	}
 
-	private async readJson<T>(request: IncomingMessage) {
-		const chunks: Buffer[] = [];
-		for await (const chunk of request) {
-			chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-		}
-		if (chunks.length === 0) return {} as T;
-		return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
+	private readJson<T>(request: IncomingMessage): Promise<T> {
+		return new Promise<T>((resolvePromise, rejectPromise) => {
+			const chunks: Buffer[] = [];
+			let totalBytes = 0;
+			let oversized = false;
+			let settled = false;
+			const fail = (error: Error) => {
+				if (settled) return;
+				settled = true;
+				rejectPromise(error);
+			};
+			request.on("data", (chunk: Buffer) => {
+				if (settled) return;
+				totalBytes += chunk.length;
+				// 远超上限的请求不值得继续排空，直接断开，接受客户端看到重置。
+				if (totalBytes > MAX_BODY_BYTES * 8) {
+					request.destroy();
+					fail(Object.assign(new Error("请求体过大"), { statusCode: 413 }));
+					return;
+				}
+				// 超限后停止缓存但继续排空剩余数据：客户端发完才能完整收到 413，
+				// 中途断连会让上传中的 fetch 只看到 ECONNRESET。
+				if (totalBytes > MAX_BODY_BYTES) {
+					oversized = true;
+					return;
+				}
+				chunks.push(chunk);
+			});
+			request.on("end", () => {
+				if (settled) return;
+				if (oversized) {
+					fail(Object.assign(new Error("请求体过大"), { statusCode: 413 }));
+					return;
+				}
+				if (chunks.length === 0) {
+					resolvePromise({} as T);
+					return;
+				}
+				try {
+					resolvePromise(JSON.parse(Buffer.concat(chunks).toString("utf8")) as T);
+				} catch {
+					fail(Object.assign(new Error("请求体不是合法 JSON"), { statusCode: 400 }));
+				}
+			});
+			request.on("error", (error) => fail(error));
+		});
 	}
 
 	private getPort(server: Server, fallback: number) {
@@ -512,5 +613,76 @@ export class WebServiceManager {
 			throw new Error("Web 服务端口必须是 1-65535 之间的整数");
 		}
 		return port;
+	}
+
+	// ── 局域网安全与会话标识 ─────────────────────────────────────────
+
+	private isAuthorized(request: IncomingMessage): boolean {
+		// 令牌未配置时全部拒绝，绝不退回无鉴权行为。
+		if (!this.authToken) return false;
+		const header = request.headers.authorization ?? "";
+		const match = header.match(/^Bearer\s+(.+)$/i);
+		if (!match) return false;
+		const provided = Buffer.from(match[1].trim());
+		const expected = Buffer.from(this.authToken);
+		if (provided.length !== expected.length) return false;
+		// 等长比较用 timingSafeEqual，避免时序侧信道逐字节猜令牌。
+		return timingSafeEqual(provided, expected);
+	}
+
+	private allowRequest(ip: string): boolean {
+		const entry = this.touchRateWindow(this.requestCounts, ip);
+		entry.count += 1;
+		return entry.count <= MAX_REQUESTS_PER_WINDOW;
+	}
+
+	private allowAuthAttempt(ip: string): boolean {
+		return this.touchRateWindow(this.authFailureCounts, ip).count < MAX_AUTH_FAILURES_PER_WINDOW;
+	}
+
+	private recordAuthFailure(ip: string) {
+		this.touchRateWindow(this.authFailureCounts, ip).count += 1;
+	}
+
+	private touchRateWindow(map: Map<string, RateWindow>, ip: string): RateWindow {
+		const now = Date.now();
+		const existing = map.get(ip);
+		if (existing && now < existing.resetAt) return existing;
+		// 懒清理过期窗口，防止长时间运行后 Map 无限增长。
+		if (map.size > 4096) {
+			for (const [key, win] of map) {
+				if (now >= win.resetAt) map.delete(key);
+			}
+		}
+		const fresh: RateWindow = { count: 0, resetAt: now + RATE_WINDOW_MS };
+		map.set(ip, fresh);
+		return fresh;
+	}
+
+	/**
+	 * Web 侧会话标识：本地会话文件路径的 sha256。
+	 * 手机端只接触不透明 ID，看不到机器目录结构；同一路径哈希恒定，
+	 * 恢复历史 Session 后前端仍能按 sessionPath 匹配 Agent。
+	 */
+	private webSessionRef(filePath: string): string {
+		return createHash("sha256").update(filePath).digest("hex");
+	}
+
+	/** 把不透明 ID 反查为真实会话文件；只接受 64 位十六进制，拒绝任何路径形态输入。 */
+	private async resolveWebSessionRef(projectId: string, ref: string): Promise<string | undefined> {
+		if (!/^[0-9a-f]{64}$/.test(ref)) return undefined;
+		const sessions = await this.deps.listSessions(projectId);
+		return sessions.find((session) => this.webSessionRef(session.filePath) === ref)?.filePath;
+	}
+
+	/** Web 侧会话摘要：路径字段替换为不透明 ID，防止泄漏本地目录结构。 */
+	private toWebSession(session: SessionSummary): SessionSummary {
+		const ref = this.webSessionRef(session.filePath);
+		return { ...session, id: ref, filePath: ref, projectPath: undefined, parentSessionPath: undefined };
+	}
+
+	/** Web 侧 Agent：sessionPath 替换为同一套不透明 ID，保证前端 Agent/会话分组仍成立。 */
+	private toWebAgent(agent: AgentTab): AgentTab {
+		return agent.sessionPath ? { ...agent, sessionPath: this.webSessionRef(agent.sessionPath) } : agent;
 	}
 }

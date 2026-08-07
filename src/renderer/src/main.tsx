@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import type { AppLogLevel } from "@shared/types";
 import { App } from "./App";
+import { verifyWebAuth } from "./browserApi";
+import { WebAuthGate } from "./components/app/WebAuthGate";
 import "./styles.css";
 import "./file-icons.css";
 
@@ -81,9 +83,38 @@ if (!rootElement) {
   throw new Error("Renderer root element missing");
 }
 
+// 局域网 Web 模式：浏览器直连 PiDeck Web 服务（无 Electron preload）。
+const isLanWeb =
+  !window.piDesktop && window.location.protocol.startsWith("http");
+
+/**
+ * 局域网入口包装：先验证访问令牌，再挂载工作台。
+ * 放在 App 外层而不是 App 内部，避免条件分支改变 App 的 hooks 顺序。
+ */
+function LanWebEntry() {
+  const [authed, setAuthed] = useState(false);
+
+  // 已保存且有效的令牌直接放行；无效/缺失时显示令牌输入页。
+  useEffect(() => {
+    if (authed) return;
+    let cancelled = false;
+    void verifyWebAuth().then((result) => {
+      if (!cancelled && result === "ok") setAuthed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authed]);
+
+  if (!authed) {
+    return <WebAuthGate onAuthenticated={() => setAuthed(true)} />;
+  }
+  return <App />;
+}
+
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    {isLanWeb ? <LanWebEntry /> : <App />}
   </React.StrictMode>,
 );
 

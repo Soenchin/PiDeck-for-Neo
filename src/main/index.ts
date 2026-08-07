@@ -10,7 +10,7 @@ import {
 	shell,
 	Tray,
 } from "electron";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -165,6 +165,17 @@ let roomManager: RoomManager;
 let projectStoreReady: Promise<void>;
 let petSystem: PetSystem | null = null;
 let appLogger: AppLogger;
+
+/**
+ * Web 服务访问令牌：服务首次启用时懒生成并持久化。
+ * 局域网服务监听 0.0.0.0，无令牌时任何同网段设备都能直接操作 Agent，
+ * 因此启动前必须确保令牌存在，再交给 WebServiceManager 强制鉴权。
+ */
+async function ensureWebServiceToken(current: AppSettings): Promise<AppSettings> {
+	if (!current.webServiceEnabled || current.webServiceToken) return current;
+	const token = randomBytes(24).toString("base64url");
+	return settingsStore.update({ webServiceToken: token });
+}
 
 /**
  * 产物预览只读取已注册项目、当前 Agent 工作目录和 PiDeck 临时输入目录中的文件。
@@ -2084,7 +2095,8 @@ function registerIpc() {
 				"webServicePort" in patch
 			) {
 				try {
-					await webServiceManager.applySettings(settings);
+					const effectiveSettings = await ensureWebServiceToken(settings);
+					await webServiceManager.applySettings(effectiveSettings);
 				} catch (error) {
 					if (settings.webServiceEnabled) {
 						await settingsStore.update({ webServiceEnabled: false });
@@ -2100,7 +2112,9 @@ function registerIpc() {
 					sessionScanner.clearWsl();
 				}
 			}
-			return settings;
+			// 返回最新快照而不是旧对象：Web 令牌可能在上面被懒生成，
+			// 渲染进程需要立刻看到它才能展示/复制。
+			return settingsStore.get();
 		},
 	);
 	ipcMain.handle(
@@ -3036,10 +3050,13 @@ app.whenReady().then(async () => {
 		installationType: settingsStore.get().installationType,
 	});
 	await applyDesktopProxy(settingsStore.get());
-	await webServiceManager.applySettings(settingsStore.get()).catch((error) => {
-		console.error("Failed to start web service:", error);
-		void settingsStore.update({ webServiceEnabled: false });
-	});
+	{
+		const webSettings = await ensureWebServiceToken(settingsStore.get());
+		await webServiceManager.applySettings(webSettings).catch((error) => {
+			console.error("Failed to start web service:", error);
+			void settingsStore.update({ webServiceEnabled: false });
+		});
+	}
 	registerIpc();
 	registerFeishuIpc();
 
