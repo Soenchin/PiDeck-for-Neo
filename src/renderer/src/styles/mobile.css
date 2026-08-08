@@ -1,0 +1,236 @@
+/* ===== PiDeck M3 移动端样式 ===== */
+
+/* 移动端检测：平板以下 */
+@media (max-width: 768px) {
+  /* === 0. 布局重构：改用单栏 Flexbox === */
+  
+  .wechat-shell {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: unset !important;
+    grid-template-rows: unset !important;
+  }
+  
+  /* === 1. 隐藏桌面专用功能 === */
+  
+  /* 隐藏右侧抽屉（文件/上下文面板） */
+  .detail-drawer {
+    display: none !important;
+  }
+  
+  /* 隐藏终端面板 */
+  .terminal-dock {
+    display: none !important;
+  }
+  
+  /* 隐藏 Git 分支信息 */
+  .git-branch-info,
+  .branch-selector {
+    display: none !important;
+  }
+  
+  /* 隐藏桌面宠物 */
+  #pet-container {
+    display: none !important;
+  }
+  
+  /* 隐藏窗口控制栏（最小化/最大化/关闭） */
+  .window-controls {
+    display: none !important;
+  }
+  
+  /* 隐藏 Neo × ROCKET 房间入口（移动端暂不支持） */
+  .room-entry-button {
+    display: none !important;
+  }
+  
+  /* === 2. 左侧栏改为抽屉 === */
+  
+  /* 左侧栏默认隐藏，需要时滑入 */
+  .chat-list-pane {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 85vw;
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.15);
+  }
+  
+  /* 侧栏展开状态（通过 JS 添加 class） */
+  .chat-list-pane.mobile-open {
+    transform: translateX(0);
+  }
+  
+  /* === 3. 对话区占满全屏 === */
+  
+  .chat-pane {
+    flex: 1 !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+  
+  .conversation-body {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+  
+  /* 消息气泡适配窄屏 */
+  .message-bubble {
+    max-width: 100%;
+  }
+  
+  /* 代码块横向滚动 */
+  .chat-pane pre {
+    overflow-x: auto;
+    white-space: pre;
+  }
+  
+  /* 遮罩层（点击关闭侧栏） */
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  
+  .mobile-sidebar-backdrop.active {
+    opacity: 1;
+    pointer-events: all;
+  }
+  
+  /* === 4. 顶栏调整 === */
+  
+  /* 汉堡菜单按钮 */
+  .mobile-hamburger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text-primary);
+    border-radius: var(--radius-sm);
+    transition: background 0.15s ease;
+  }
+  
+  .mobile-hamburger:hover {
+    background: var(--color-bg-hover);
+  }
+  
+  .mobile-hamburger:active {
+    background: var(--color-bg-active);
+  }
+  
+  /* === 5. 输入框调整 === */
+  
+  .composer {
+    width: 100% !important;
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+  }
+  
+  .composer-box {
+    width: 100%;
+  }
+  
+  /* 发送按钮增大（44x44px 最小触摸目标） */
+  .composer-send-button,
+  .composer-stop-button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: var(--space-2);
+  }
+  
+  /* === 6. 列表项增大，减少误触 === */
+  
+  .project-row,
+  .agent-tab,
+  .session-row {
+    min-height: 56px;
+    padding: var(--space-3);
+  }
+  
+  /* === 7. 工具调用默认折叠 === */
+  
+  .tool-call-card {
+    /* 默认折叠由 JS 控制，这里只调整样式 */
+  }
+  
+  /* === 8. 模态框适配 === */
+  
+  .settings-modal,
+  .config-modal {
+    width: min(95vw, 600px) !important;
+    max-height: 90vh;
+  }
+  
+  /* === 9. 按钮最小尺寸 === */
+  
+  button,
+  .button,
+  .icon-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  
+  /* 小图标按钮例外（如关闭按钮） */
+  .close-button,
+  .icon-button-sm {
+    min-width: 32px;
+    min-height: 32px;
+  }
+}
+
+/* 手机竖屏进一步简化 */
+@media (max-width: 480px) {
+  .conversation-body {
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+  }
+  
+  /* 更紧凑的间距 */
+  .composer {
+    padding-left: var(--space-1);
+    padding-right: var(--space-1);
+  }
+  
+  /* 消息时间戳等次要信息缩小 */
+  .message-meta,
+  .message-timestamp {
+    font-size: var(--font-size-micro);
+  }
+}
+
+/* === 辅助类 === */
+
+/* JS 运行时检测添加的 class */
+.is-mobile {
+  /* 占位，供 JS 检测用 */
+}
+
+/* 移动端专用显示 */
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-only {
+    display: block;
+  }
+  
+  .desktop-only {
+    display: none !important;
+  }
+}

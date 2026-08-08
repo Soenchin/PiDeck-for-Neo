@@ -46,6 +46,7 @@ import {
   GitBranch,
   RefreshCw,
   X,
+  Menu,
 } from "lucide-react";
 import { subscribeToNotice, showNotice } from "./utils/notice";
 import { createPreviewApi } from "./previewApi";
@@ -546,6 +547,25 @@ export function App() {
   if (missingElectronPreload) {
     return <PreloadMissingScreen />;
   }
+
+  // 移动端检测
+  const [isMobile, setIsMobile] = useState(() => {
+    return window.innerWidth <= 768 || /Mobi|Android|iPhone/i.test(navigator.userAgent);
+  });
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // 监听窗口大小变化
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (!mobile) {
+        setMobileSidebarOpen(false); // 切回桌面时关闭侧栏
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const [projects, setProjects] = useState<Project[]>([]);
   // 项目的 git worktree 列表：{ parentId -> WorktreeEntry[] }

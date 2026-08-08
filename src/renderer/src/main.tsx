@@ -6,6 +6,7 @@ import { verifyWebAuth } from "./browserApi";
 import { WebAuthGate } from "./components/app/WebAuthGate";
 import "./styles.css";
 import "./file-icons.css";
+import "./styles/mobile.css";
 
 const BOOT_MIN_MS = 450;
 const BOOT_COLOR_MS = 500;
