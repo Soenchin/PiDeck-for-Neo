@@ -117,6 +117,13 @@ function isWebState(value: unknown): value is WebState {
 	);
 }
 
+/**
+ * Vite dev server 会把未知 /api/* 回退到 index.html（200 + text/html）。
+ * 用它标记“浏览器预览环境”，只有这种场景才允许回退到 preview 假数据；
+ * 真实 Web 服务故障（网络错误、非 200、非 HTML 的损坏载荷）不应伪装成示例数据。
+ */
+class HtmlPreviewError extends Error {}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const headers: Record<string, string> = { "content-type": "application/json" };
 	// Web 服务全部 API 要求 Bearer 令牌；无令牌时服务端返回 401，由登录门槛接管。
@@ -129,6 +136,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	try {
 		data = await response.json();
 	} catch {
+		// 200 + HTML 是 Vite 预览环境特征；其余归为真实服务故障。
+		if (response.ok && (response.headers.get("content-type") ?? "").includes("text/html")) {
+			throw new HtmlPreviewError();
+		}
 		throw new Error(
 			t("errors.nonJsonResponse", {
 				status: response.status,
@@ -207,8 +218,11 @@ export function createBrowserApi(): PiDesktopApi {
 			list: async () => {
 				try {
 					return (await refreshState()).projects;
-				} catch {
-					return connected ? state.projects : base.projects.list();
+				} catch (error) {
+					// 仅 Vite 预览环境回退到 preview 假数据；真实服务故障绝不伪造预览数据。
+					if (error instanceof HtmlPreviewError) return base.projects.list();
+					if (connected) return state.projects;
+					throw error;
 				}
 			},
 		},
@@ -248,8 +262,11 @@ export function createBrowserApi(): PiDesktopApi {
 			list: async () => {
 				try {
 					return (await refreshState()).agents;
-				} catch {
-					return connected ? state.agents : base.agents.list();
+				} catch (error) {
+					// 仅 Vite 预览环境回退到 preview 假数据；真实服务故障绝不伪造预览数据。
+					if (error instanceof HtmlPreviewError) return base.agents.list();
+					if (connected) return state.agents;
+					throw error;
 				}
 			},
 			create: async (input) => {

@@ -1,4 +1,3 @@
-// @ts-nocheck - extracted from AppParts, pre-existing type issues
 import { useState } from "react";
 import { Check, RefreshCw, UploadCloud } from "lucide-react";
 import { t } from "../../i18n";

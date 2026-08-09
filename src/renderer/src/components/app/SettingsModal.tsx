@@ -1,4 +1,3 @@
-// @ts-nocheck - extracted from AppParts, pre-existing type issues
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
 	Settings2,
@@ -16,7 +15,7 @@ import { Button } from "../ui/Button";
 import { CloseIconButton, IconButton } from "../ui/IconButton";
 import { SelectField } from "../ui/SelectField";
 import { TextField } from "../ui/TextField";
-import type { AppSettings, AppInfo, PiInstallStatus, PiUpdateCheckResult, PiCliUpdateResult, PetManifest } from "../../../shared/types";
+import type { AppSettings, AppInfo, PiInstallStatus, PiUpdateCheckResult, PiCliUpdateResult, PetManifest } from "../../../../shared/types";
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
 
 const ZOOM_FACTOR_MIN = 0.8;

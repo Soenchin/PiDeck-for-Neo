@@ -1991,25 +1991,16 @@ export class AgentManager {
 	): { lineIndex: number; entry: Record<string, any> } {
 		const entryId = msg.meta?.entryId as string | undefined;
 
-		// ── 调试日志（输出到控制台） ──
-		console.log(`[locateJsonlEntry] msg.id=${msg.id}, meta.entryId=${entryId?.slice(0, 12) ?? "(none)"}, role=${msg.role}, text=[${msg.text.slice(0, 60)}]`);
-
 		// 方案一：按 entryId 精确定位（首选）
 		if (entryId) {
 			const lineIndex = this.findJsonlLineByEntryId(lines, entryId);
 			if (lineIndex !== -1) {
-				console.log(`[locateJsonlEntry] scheme1(entryId) found at line=${lineIndex}`);
 				return { lineIndex, entry: JSON.parse(lines[lineIndex]) };
 			}
-			console.warn(`[locateJsonlEntry] EntryId ${entryId} not found in JSONL, trying msg.id extraction`);
+			this.appLogger?.warn("agent", "locateJsonlEntry: entryId not found, trying msg.id extraction", {
+				agentId: msg.agentId,
+			});
 		}
-
-		// 调试：记录 JSONL 前 10 行的 id，辅助排查 entryId 为何找不到
-		const lineIds = lines.slice(0, 10).map((l, idx) => {
-			try { const p = JSON.parse(l); return `${idx}:id=${p.id?.slice(0, 12) ?? "(no id)"}${p.entryId ? `,entryId=${String(p.entryId).slice(0, 12)}` : ""}`; }
-			catch { return `${idx}:(parse error)`; }
-		}).join("; ");
-		console.log(`[locateJsonlEntry] first 10 JSONL ids: [${lineIds}]`);
 
 		// 方案二：从 msg.id 提取 entryId（id 格式: `${agentId}-history-${entryId}`）
 		// 当 get_entries 返回的 entryId 在 JSONL 中找不到时尝试此方案；
@@ -2017,23 +2008,23 @@ export class AgentManager {
 		const idPrefix = `${msg.agentId}-history-`;
 		if (msg.id.startsWith(idPrefix)) {
 			const extracted = msg.id.slice(idPrefix.length);
-			console.log(`[locateJsonlEntry] scheme2 extracting from msg.id, extracted=[${extracted}]`);
 			const lineIndex = this.findJsonlLineByEntryId(lines, extracted);
 			if (lineIndex !== -1) {
-				console.log(`[locateJsonlEntry] scheme2 found at line=${lineIndex}`);
 				return { lineIndex, entry: JSON.parse(lines[lineIndex]) };
 			}
-			console.warn(`[locateJsonlEntry] scheme2 extracted [${extracted}] not found in JSONL`);
+			this.appLogger?.warn("agent", "locateJsonlEntry: msg.id extraction not found in JSONL", {
+				agentId: msg.agentId,
+			});
 		} else {
-			console.warn(`[locateJsonlEntry] msg.id does NOT start with prefix [${idPrefix}], cannot try scheme2`);
+			this.appLogger?.warn("agent", "locateJsonlEntry: msg.id has no history prefix, skipping extraction", {
+				agentId: msg.agentId,
+			});
 		}
 
 		// 方案三：按角色 + 文本内容匹配（兜底方案）
 		// 当 JSONL 中存在多个分支时，计数方案会错误统计非活跃分支的条目。
 		// 改用文本匹配，只找与 msg 角色和文本内容完全一致的 entry。
 		// 注意：相同文本在不同消息中重复时只能返回第一个匹配，但对常见场景足够。
-		console.log(`[locateJsonlEntry] scheme3 scanning by role=${msg.role} + text match`);
-		let matchCount = 0;
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i].trim();
 			if (!line) continue;
@@ -2046,15 +2037,16 @@ export class AgentManager {
 				) {
 					const text = this.extractText((entry as any)?.message?.content);
 					if (text === msg.text) {
-						matchCount++;
-						console.log(`[locateJsonlEntry] scheme3 found at line=${i}, role=${entryRole}, match#=${matchCount}`);
 						return { lineIndex: i, entry };
 					}
 				}
 			} catch { /* 跳过不可解析的行 */ }
 		}
 
-		console.error(`[locateJsonlEntry] ALL SCHEMES FAILED. msg.id=${msg.id}, role=${msg.role}, text=[${msg.text.slice(0, 100)}], jsonlLines=${lines.length}`);
+		this.appLogger?.error("agent", "locateJsonlEntry: all schemes failed", {
+			agentId: msg.agentId,
+			jsonlLines: lines.length,
+		});
 		throw new Error("Message not found in session file");
 	}
 
@@ -2192,8 +2184,6 @@ export class AgentManager {
 			const { lineIndex, entry } = this.locateJsonlEntry(lines, messages, msg);
 			const deletedEntryId = (entry as any)?.id;
 			const deletedParentId = (entry as any)?.parentId;
-			const foundRole = (entry as any)?.message?.role;
-			console.log(`[deleteMessage] lineIndex=${lineIndex}, entryId=${deletedEntryId?.slice(0, 12) ?? "(none)"}, parentId=${deletedParentId?.slice(0, 12) ?? "(null)"}, entryRole=${foundRole ?? "(none)"}`);
 
 			// 2.5 写前备份（最多保留最近 3 个 .edit-backup 文件）
 			await this.backupSessionFile(sessionPath);
