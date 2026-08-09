@@ -498,7 +498,7 @@ export class WebServiceManager {
 		const body = await readFile(filePath);
 		response.writeHead(200, {
 			"content-type": this.contentType(filePath),
-			"cache-control": filePath.endsWith("index.html") ? "no-store" : "public, max-age=31536000, immutable",
+			"cache-control": filePath.endsWith("index.html") || filePath.endsWith(".webmanifest") ? "no-store" : "public, max-age=31536000, immutable",
 		});
 		response.end(body);
 	}
@@ -525,6 +525,9 @@ export class WebServiceManager {
 				return "image/png";
 			case ".ico":
 				return "image/x-icon";
+			case ".webmanifest":
+				// PWA manifest 必须是 JSON 系 MIME，浏览器才认；octet-stream 会被拒
+				return "application/manifest+json; charset=utf-8";
 			default:
 				return "application/octet-stream";
 		}

@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- PWA：手机浏览器“添加到主屏幕”后以独立 App 窗口运行（无地址栏/标签栏） -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#030807" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; font-src 'self' data:; connect-src 'self' ws: http://127.0.0.1:* http://localhost:*"
