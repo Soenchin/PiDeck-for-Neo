@@ -601,7 +601,9 @@ export function App() {
     setView(null);
     setActiveProjectId(projectId);
     setActiveAgentId(agentId);
-  }, []);
+    // 移动端：用户从抽屉里选项目/会话后自动收起侧栏，避免遮挡对话区。
+    if (isMobile) setMobileSidebarOpen(false);
+  }, [isMobile]);
   // 切换 agent（新会话/恢复会话）时刷新设置，使 pi agent 的 hideThinkingBlock 立即生效
   useEffect(() => {
     if (activeAgentId) {
@@ -5287,8 +5289,15 @@ ${goalTextRef.current}
           </button>
         </div>
       )}
+      {/* 移动端遮罩层 */}
+      {isMobile && mobileSidebarOpen && (
+        <div 
+          className="mobile-sidebar-backdrop active"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
       <aside
-        className="chat-list-pane v3-braun"
+        className={`chat-list-pane v3-braun${isMobile && mobileSidebarOpen ? " mobile-open" : ""}`}
         onPointerLeave={() => {
           if (listHoverRevealSuppressed) setListHoverRevealSuppressed(false);
         }}
@@ -6010,6 +6019,15 @@ ${goalTextRef.current}
         ) : (
           <>
         <header ref={chatHeaderRef} className={`chat-header${activeAgent ? "" : " splash-hidden"}`}>
+          {isMobile && (
+            <button
+              className="mobile-hamburger"
+              onClick={() => setMobileSidebarOpen(true)}
+              aria-label="打开侧栏"
+            >
+              <Menu size={20} />
+            </button>
+          )}
           <div className="chat-title-block">
             <div className="chat-title-row">
               <strong
