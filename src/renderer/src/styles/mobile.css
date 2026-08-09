@@ -65,6 +65,27 @@
     transform: translateX(0);
   }
   
+  /* 确保侧栏顶部 logo 区域可见（覆盖桌面端 custom-titlebar 的隐藏） */
+  .chat-list-pane .list-toolbar {
+    display: flex !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
+  
+  .chat-list-pane .list-toolbar .app-badge {
+    display: flex !important;
+  }
+  
+  /* 移动端侧栏 logo：用 NeoNisch 宝石 logo（同桌面端标题栏），替代 Pi 形 LogoMark */
+  .chat-list-pane .list-toolbar .app-badge .neon-titlebar-app-mark {
+    width: 26px;
+    height: 26px;
+    flex: 0 0 auto;
+    object-fit: contain;
+    filter: drop-shadow(0 0 7px rgba(84, 232, 154, 0.24));
+  }
+  
   /* === 3. 对话区占满全屏 === */
   
   .chat-pane {
@@ -232,5 +253,13 @@
   
   .desktop-only {
     display: none !important;
+  }
+  
+  /* 移动端顶栏 Logo */
+  .mobile-header-logo {
+    height: 28px;
+    width: 28px;
+    margin-left: 8px;
+    object-fit: contain;
   }
 }

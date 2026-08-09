@@ -5305,7 +5305,15 @@ ${goalTextRef.current}
         <div className="sidebar-body">
           <div className="list-toolbar">
           <div className="app-badge">
-            <LogoMark />
+            {isMobile ? (
+              <img
+                className="neon-titlebar-app-mark"
+                src={new URL("./assets/images/neonisch-app-mark.svg", import.meta.url).href}
+                alt="NeoNisch application mark"
+              />
+            ) : (
+              <LogoMark />
+            )}
             <span className="brand-wordmark" aria-label="NeoNisch">
               NeoNisch
             </span>
