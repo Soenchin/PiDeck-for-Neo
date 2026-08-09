@@ -154,7 +154,23 @@
     background: var(--color-bg-active);
   }
   
-  /* === 5. 输入框调整 === */
+  /* === 5. 状态详情弹窗：窄屏改固定底部弹板 ===
+     桌面端 popover 是 absolute + right:0 锚在触发按钮上，
+     移动端触发按钮在顶栏中间，弹窗向左展开会冲出屏幕被截断，
+     改用 fixed 底部 sheet，左右贴边，不再依赖锚点位置 */
+  .session-status-details-popover {
+    position: fixed;
+    top: auto;
+    left: var(--space-2);
+    right: var(--space-2);
+    bottom: var(--space-2);
+    width: auto;
+    max-height: min(70vh, 680px);
+    z-index: 960;
+    border-radius: var(--radius-lg);
+  }
+
+  /* === 6. 输入框调整 === */
   
   .composer {
     width: 100% !important;
@@ -253,13 +269,5 @@
   
   .desktop-only {
     display: none !important;
-  }
-  
-  /* 移动端顶栏 Logo */
-  .mobile-header-logo {
-    height: 28px;
-    width: 28px;
-    margin-left: 8px;
-    object-fit: contain;
   }
 }
