@@ -35,6 +35,14 @@ type WebServiceDependencies = {
 	setModel: (agentId: string, provider: string, modelId: string) => Promise<AgentRuntimeState>;
 	cycleThinking: (agentId: string) => Promise<AgentRuntimeState>;
 	setThinking: (agentId: string, level: string) => Promise<AgentRuntimeState>;
+	/** 回传 ask_question 的回答到 agent（等价桌面端 sendUiResponse）。 */
+	sendUiResponse: (
+		agentId: string,
+		requestId: string,
+		response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean },
+	) => void | Promise<void>;
+	/** 返回所有仍未回答的 ask_question 请求，供手机端轮询弹窗。 */
+	getPendingUIRequests: () => Array<{ agentId: string; requestId: string } & Record<string, unknown>>;
 };
 
 /** 单次请求体上限：手机端目前只发文本消息，预留长文本余量。 */
@@ -243,6 +251,22 @@ export class WebServiceManager {
 				this.sendJson(response, { state });
 				return;
 			}
+			// ask_question 答案回传：手机端选项/确认/文本回答都走这里。
+			const uiResponseMatch = url.pathname.match(/^\/api\/agents\/([^\/]+)\/ui-response$/);
+			if (uiResponseMatch && request.method === "POST") {
+				const body = await this.readJson<{ requestId?: string; value?: string | boolean; cancelled?: boolean; confirmed?: boolean }>(request);
+				if (!body.requestId) {
+					this.sendError(response, 400, "requestId 不能为空");
+					return;
+				}
+				await this.deps.sendUiResponse(decodeURIComponent(uiResponseMatch[1]), body.requestId, {
+					value: body.value,
+					cancelled: body.cancelled,
+					confirmed: body.confirmed,
+				});
+				this.sendJson(response, { ok: true });
+				return;
+			}
 			if (url.pathname.startsWith("/api/")) {
 				this.sendError(response, 404, "API 不存在");
 				return;
@@ -260,6 +284,7 @@ export class WebServiceManager {
 			projects: this.deps.listProjects(),
 			agents,
 			messagesByAgent,
+			uiRequests: this.deps.getPendingUIRequests(),
 		};
 	}
 

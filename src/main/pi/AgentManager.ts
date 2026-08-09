@@ -181,6 +181,27 @@ export class AgentManager {
 		return this.messages.get(agentId) ?? [];
 	}
 
+	/** LAN Web 端轮询用：返回所有仍 pending 的 ask_question 请求（含完整 UI 字段），供手机端弹窗展示。 */
+	getPendingUIRequests() {
+		const result: Array<{ agentId: string; requestId: string } & Record<string, unknown>> = [];
+		for (const [agentId, messages] of this.messages) {
+			for (const msg of messages) {
+				const meta = msg.meta;
+				if (
+					msg.role === "system" &&
+					meta?.type === "askQuestion" &&
+					meta.status === "pending" &&
+					typeof meta.uiRequest === "object" &&
+					meta.uiRequest !== null
+				) {
+					const uiRequest = meta.uiRequest as Record<string, unknown>;
+					result.push({ agentId, ...uiRequest } as { agentId: string; requestId: string } & Record<string, unknown>);
+				}
+			}
+		}
+		return result;
+	}
+
 	recordHostExchange(agentId: string, userText: string, assistantText: string) {
 		this.addMessage(agentId, "user", userText);
 		this.addMessage(agentId, "assistant", assistantText);

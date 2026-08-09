@@ -2981,6 +2981,8 @@ app.whenReady().then(async () => {
 		setModel: (agentId, provider, modelId) => agentManager.setModel(agentId, provider, modelId),
 		cycleThinking: (agentId) => agentManager.cycleThinking(agentId),
 		setThinking: (agentId, level) => agentManager.setThinking(agentId, level),
+		sendUiResponse: (agentId, requestId, response) => agentManager.sendUIResponse(agentId, requestId, response),
+		getPendingUIRequests: () => agentManager.getPendingUIRequests(),
 	});
 	terminalManager = new TerminalSessionManager(
 		(agentId) => agentManager.getCwd(agentId),

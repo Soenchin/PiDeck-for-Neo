@@ -3,10 +3,23 @@ import type { AgentTab, ChatMessage, SendPromptInput } from "../../shared/types"
 import { t } from "./i18n";
 import { createPreviewApi } from "./previewApi";
 
+type UiWebRequest = {
+	agentId: string;
+	requestId: string;
+	method: string;
+	title: string;
+	options?: string[];
+	placeholder?: string;
+	prefill?: string;
+	allowOther?: boolean;
+	completed?: boolean;
+} & Record<string, unknown>;
+
 type WebState = {
 	projects: Awaited<ReturnType<PiDesktopApi["projects"]["list"]>>;
 	agents: AgentTab[];
 	messagesByAgent: Record<string, ChatMessage[]>;
+	uiRequests?: UiWebRequest[];
 };
 
 const base = createPreviewApi();
@@ -16,7 +29,9 @@ let polling = false;
 let pollTimer: number | undefined;
 const stateListeners = new Set<(tabs: AgentTab[]) => void>();
 const messageListeners = new Set<(payload: { agentId: string; messages: ChatMessage[] }) => void>();
+const uiRequestListeners = new Set<(request: UiWebRequest) => void>();
 let lastMessages = new Map<string, string>();
+let lastUiRequests = new Map<string, UiWebRequest>();
 
 // ── 局域网 Web 访问令牌 ─────────────────────────────────────────────────
 const WEB_TOKEN_STORAGE_KEY = "pideck-web-token";
@@ -141,6 +156,24 @@ async function refreshState() {
 		lastMessages.set(agentId, key);
 		for (const listener of messageListeners) listener({ agentId, messages });
 	}
+	// 轮询 pending 的 ask_question 请求：新出现 → 通知渲染为弹窗；
+	// 消失（已答/取消）→ 通知完成，让 activeUiRequest 清理、关闭弹窗。
+	const currentAsk = new Map<string, UiWebRequest>();
+	for (const req of state.uiRequests ?? []) {
+		currentAsk.set(`${req.agentId}::${req.requestId}`, req);
+	}
+	for (const key of currentAsk.keys()) {
+		if (!lastUiRequests.has(key)) {
+			const req = currentAsk.get(key)!;
+			for (const listener of uiRequestListeners) listener(req);
+		}
+	}
+	for (const [key, req] of lastUiRequests) {
+		if (!currentAsk.has(key)) {
+			for (const listener of uiRequestListeners) listener({ ...req, completed: true });
+		}
+	}
+	lastUiRequests = currentAsk;
 	return state;
 }
 
@@ -158,7 +191,7 @@ function subscribe<T>(set: Set<(payload: T) => void>, callback: (payload: T) => 
 	set.add(callback);
 	return () => {
 		set.delete(callback);
-		if (stateListeners.size === 0 && messageListeners.size === 0 && pollTimer) {
+		if (stateListeners.size === 0 && messageListeners.size === 0 && uiRequestListeners.size === 0 && pollTimer) {
 			window.clearInterval(pollTimer);
 			pollTimer = undefined;
 			polling = false;
@@ -289,6 +322,14 @@ export function createBrowserApi(): PiDesktopApi {
 			},
 			onState: (callback) => subscribe(stateListeners, callback),
 			onMessages: (callback) => subscribe(messageListeners, callback),
+			onUiRequest: (callback) => subscribe(uiRequestListeners, callback),
+			sendUiResponse: async (agentId, requestId, response) => {
+				await request(`/api/agents/${encodeURIComponent(agentId)}/ui-response`, {
+					method: "POST",
+					body: JSON.stringify({ requestId, ...response }),
+				});
+				await refreshState();
+			},
 		},
 		settings: {
 			...base.settings,
