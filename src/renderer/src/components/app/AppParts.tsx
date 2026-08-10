@@ -2704,7 +2704,7 @@ export const AssistantText = memo(
 							? [remarkGfm, remarkLinkifyPaths]
 							: [remarkGfm, remarkMath, remarkLinkifyPaths]
 					}
-					rehypePlugins={streaming ? [] : [rehypeKatex]}
+					rehypePlugins={streaming ? [] : [[rehypeKatex, { strict: false }]]}
 					urlTransform={markdownUrlTransform}
 					components={{
 						pre: streaming ? StreamingCodeBlock : CodeBlock,

@@ -63,6 +63,9 @@ export class WebServiceManager {
 	/** 按 IP 的请求量与鉴权失败计数，窗口过期后自动重置。 */
 	private readonly requestCounts = new Map<string, RateWindow>();
 	private readonly authFailureCounts = new Map<string, RateWindow>();
+	/** SSE 连接管理：按连接 ID 存储响应对象，用于广播事件和断连时清理。 */
+	private readonly sseConnections = new Map<string, ServerResponse>();
+	private sseIdCounter = 0;
 
 	constructor(private readonly deps: WebServiceDependencies) {}
 
@@ -251,6 +254,57 @@ export class WebServiceManager {
 				this.sendJson(response, { state });
 				return;
 			}
+			// 单 Agent 消息分页接口：只返回指定 Agent 的消息，支持向前翻页。
+			const messagesMatch = url.pathname.match(/^\/api\/agents\/([^\/]+)\/messages$/);
+			if (messagesMatch && request.method === "GET") {
+				const agentId = decodeURIComponent(messagesMatch[1]);
+				const allMessages = this.deps.getMessages(agentId);
+				const limit = Math.min(
+					Number(url.searchParams.get("limit")) || 100,
+					200,
+				);
+				const before = Number(url.searchParams.get("before")) || allMessages.length;
+				const end = Math.min(before, allMessages.length);
+				const start = Math.max(0, end - limit);
+				const messages = allMessages.slice(start, end);
+				this.sendJson(response, {
+					messages,
+					hasMore: start > 0,
+					nextBefore: start > 0 ? start : null,
+				});
+				return;
+			}
+			// SSE 事件流：保持连接，推送 state/messages/ui-request 事件。
+			if (url.pathname === "/api/events" && request.method === "GET") {
+				const connectionId = `sse-${++this.sseIdCounter}`;
+				response.writeHead(200, {
+					"content-type": "text/event-stream; charset=utf-8",
+					"cache-control": "no-store",
+					"connection": "keep-alive",
+					"x-accel-buffering": "no",
+				});
+				this.sseConnections.set(connectionId, response);
+				// 立即发送初始状态快照
+				this.sendSseEvent(response, "state", this.getState());
+				// 心跳：每 25 秒发送注释保持连接活跃
+				const heartbeat = setInterval(() => {
+					if (!this.sseConnections.has(connectionId)) {
+						clearInterval(heartbeat);
+						return;
+					}
+					try {
+						response.write(": heartbeat\n\n");
+					} catch {
+						clearInterval(heartbeat);
+						this.sseConnections.delete(connectionId);
+					}
+				}, 25000);
+				request.on("close", () => {
+					clearInterval(heartbeat);
+					this.sseConnections.delete(connectionId);
+				});
+				return;
+			}
 			// ask_question 答案回传：手机端选项/确认/文本回答都走这里。
 			const uiResponseMatch = url.pathname.match(/^\/api\/agents\/([^\/]+)\/ui-response$/);
 			if (uiResponseMatch && request.method === "POST") {
@@ -277,13 +331,9 @@ export class WebServiceManager {
 
 	private getState() {
 		const agents = this.deps.listAgents().map((agent) => this.toWebAgent(agent));
-		const messagesByAgent = Object.fromEntries(
-			agents.map((agent) => [agent.id, this.deps.getMessages(agent.id)]),
-		);
 		return {
 			projects: this.deps.listProjects(),
 			agents,
-			messagesByAgent,
 			uiRequests: this.deps.getPendingUIRequests(),
 		};
 	}
@@ -712,5 +762,48 @@ export class WebServiceManager {
 	/** Web 侧 Agent：sessionPath 替换为同一套不透明 ID，保证前端 Agent/会话分组仍成立。 */
 	private toWebAgent(agent: AgentTab): AgentTab {
 		return agent.sessionPath ? { ...agent, sessionPath: this.webSessionRef(agent.sessionPath) } : agent;
+	}
+
+	// ── SSE 事件推送 ─────────────────────────────────────────────────
+
+	/** 向单个 SSE 连接发送事件 */
+	private sendSseEvent(response: ServerResponse, event: string, data: unknown) {
+		try {
+			const payload = JSON.stringify(data);
+			response.write(`event: ${event}\ndata: ${payload}\n\n`);
+		} catch {
+			// 连接已关闭或写入失败，静默忽略
+		}
+	}
+
+	/** 向所有活跃 SSE 连接广播事件 */
+	private broadcastSseEvent(event: string, data: unknown) {
+		const payload = JSON.stringify(data);
+		const deadConnections: string[] = [];
+		for (const [id, response] of this.sseConnections) {
+			try {
+				response.write(`event: ${event}\ndata: ${payload}\n\n`);
+			} catch {
+				deadConnections.push(id);
+			}
+		}
+		for (const id of deadConnections) {
+			this.sseConnections.delete(id);
+		}
+	}
+
+	/** 广播状态变化（项目、Agent、UI 请求） */
+	broadcastStateChange() {
+		this.broadcastSseEvent("state", this.getState());
+	}
+
+	/** 广播单个 Agent 的消息更新 */
+	broadcastMessagesUpdate(agentId: string, messages: ChatMessage[]) {
+		this.broadcastSseEvent("messages", { agentId, messages });
+	}
+
+	/** 广播 UI 请求变化 */
+	broadcastUiRequestChange() {
+		this.broadcastSseEvent("ui-request", { requests: this.deps.getPendingUIRequests() });
 	}
 }

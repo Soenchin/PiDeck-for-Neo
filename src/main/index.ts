@@ -2998,6 +2998,12 @@ app.whenReady().then(async () => {
 	);
 	// Agent 状态变更时同步刷新两人 status，用于房间面板展示 near-real-time 状态。
 	agentManager.addStateListener((tabs) => roomManager.refreshAgentStatuses(tabs));
+	// Agent 状态变更时向所有 Web SSE 连接广播最新状态。
+	agentManager.addStateListener(() => webServiceManager.broadcastStateChange());
+	// 消息更新时向 Web 端推送增量消息。
+	agentManager.addMessagesListener((agentId, messages) => webServiceManager.broadcastMessagesUpdate(agentId, messages));
+	// UI 请求变化时广播给 Web 端。
+	agentManager.addUiRequestListener(() => webServiceManager.broadcastUiRequestChange());
 	// 项目加载完成后再迁移/回填房间隐藏项目；所有 room IPC 等待同一条 Promise。
 	projectStoreReady = projectStoreReady.then(() => roomManager.initOnStartup());
 

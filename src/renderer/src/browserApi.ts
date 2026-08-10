@@ -18,19 +18,17 @@ type UiWebRequest = {
 type WebState = {
 	projects: Awaited<ReturnType<PiDesktopApi["projects"]["list"]>>;
 	agents: AgentTab[];
-	messagesByAgent: Record<string, ChatMessage[]>;
 	uiRequests?: UiWebRequest[];
 };
 
 const base = createPreviewApi();
-let state: WebState = { projects: [], agents: [], messagesByAgent: {} };
+let state: WebState = { projects: [], agents: [] };
 let connected = false;
-let polling = false;
-let pollTimer: number | undefined;
+let sseAbortController: AbortController | null = null;
 const stateListeners = new Set<(tabs: AgentTab[]) => void>();
 const messageListeners = new Set<(payload: { agentId: string; messages: ChatMessage[] }) => void>();
 const uiRequestListeners = new Set<(request: UiWebRequest) => void>();
-let lastMessages = new Map<string, string>();
+const connectionListeners = new Set<(connected: boolean, error?: string) => void>();
 let lastUiRequests = new Map<string, UiWebRequest>();
 
 // ── 局域网 Web 访问令牌 ─────────────────────────────────────────────────
@@ -112,14 +110,13 @@ function isWebState(value: unknown): value is WebState {
 	if (!isRecord(value)) return false;
 	return (
 		Array.isArray(value.projects) &&
-		Array.isArray(value.agents) &&
-		isRecord(value.messagesByAgent)
+		Array.isArray(value.agents)
 	);
 }
 
 /**
  * Vite dev server 会把未知 /api/* 回退到 index.html（200 + text/html）。
- * 用它标记“浏览器预览环境”，只有这种场景才允许回退到 preview 假数据；
+ * 用它标记"浏览器预览环境"，只有这种场景才允许回退到 preview 假数据；
  * 真实 Web 服务故障（网络错误、非 200、非 HTML 的损坏载荷）不应伪装成示例数据。
  */
 class HtmlPreviewError extends Error {}
@@ -161,14 +158,7 @@ async function refreshState() {
 	state = nextState;
 	connected = true;
 	for (const listener of stateListeners) listener(state.agents);
-	for (const [agentId, messages] of Object.entries(state.messagesByAgent)) {
-		const key = JSON.stringify(messages);
-		if (lastMessages.get(agentId) === key) continue;
-		lastMessages.set(agentId, key);
-		for (const listener of messageListeners) listener({ agentId, messages });
-	}
-	// 轮询 pending 的 ask_question 请求：新出现 → 通知渲染为弹窗；
-	// 消失（已答/取消）→ 通知完成，让 activeUiRequest 清理、关闭弹窗。
+	// UI 请求变化检测
 	const currentAsk = new Map<string, UiWebRequest>();
 	for (const req of state.uiRequests ?? []) {
 		currentAsk.set(`${req.agentId}::${req.requestId}`, req);
@@ -188,29 +178,147 @@ async function refreshState() {
 	return state;
 }
 
-function ensurePolling() {
-	if (polling) return;
-	polling = true;
-	void refreshState().catch(() => undefined);
-	pollTimer = window.setInterval(() => {
-		void refreshState().catch(() => undefined);
-	}, 600);
+/** 建立 SSE 连接，接收状态、消息和 UI 请求推送 */
+async function connectSSE() {
+	if (sseAbortController) {
+		console.log("[SSE] Connection already in progress, skipping");
+		return;
+	}
+	console.log("[SSE] Connecting to /api/events... authToken present:", !!authToken);
+	sseAbortController = new AbortController();
+	try {
+		const response = await fetch("/api/events", {
+			headers: { authorization: `Bearer ${authToken}` },
+			signal: sseAbortController.signal,
+		});
+		if (!response.ok) {
+			throw new Error(`SSE connection failed: ${response.status}`);
+		}
+		if (!response.body) {
+			throw new Error("SSE response body is null");
+		}
+		console.log("[SSE] Connected successfully");
+		connected = true;
+		for (const listener of connectionListeners) listener(true);
+		const reader = response.body.getReader();
+		const decoder = new TextDecoder();
+		let buffer = "";
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split("\n");
+			buffer = lines.pop() ?? "";
+			let event = "";
+			let data = "";
+			for (const line of lines) {
+				if (line.startsWith("event:")) {
+					event = line.slice(6).trim();
+				} else if (line.startsWith("data:")) {
+					data = line.slice(5).trim();
+				} else if (line === "" && event && data) {
+					console.log("[SSE] Received event:", event, "data length:", data.length);
+					handleSSEEvent(event, data);
+					event = "";
+					data = "";
+				}
+			}
+		}
+	} catch (error: unknown) {
+		if ((error as { name?: string }).name === "AbortError") {
+			console.log("[SSE] Connection aborted");
+			return;
+		}
+		console.error("[SSE] Connection error:", error);
+		connected = false;
+		const errorMsg = error instanceof Error ? error.message : String(error);
+		for (const listener of connectionListeners) listener(false, errorMsg);
+		// 断线后 3 秒重连
+		console.log("[SSE] Reconnecting in 3 seconds...");
+		setTimeout(() => {
+			sseAbortController = null;
+			void connectSSE();
+		}, 3000);
+	} finally {
+		sseAbortController = null;
+	}
+}
+
+function handleSSEEvent(event: string, data: string) {
+	try {
+		const payload = JSON.parse(data);
+		if (event === "state" && isWebState(payload)) {
+			console.log("[SSE] State update - agents:", payload.agents.length, "projects:", payload.projects.length);
+			state = payload;
+			for (const listener of stateListeners) listener(state.agents);
+			// UI 请求变化
+			const currentAsk = new Map<string, UiWebRequest>();
+			for (const req of state.uiRequests ?? []) {
+				currentAsk.set(`${req.agentId}::${req.requestId}`, req);
+			}
+			for (const key of currentAsk.keys()) {
+				if (!lastUiRequests.has(key)) {
+					const req = currentAsk.get(key)!;
+					for (const listener of uiRequestListeners) listener(req);
+				}
+			}
+			for (const [key, req] of lastUiRequests) {
+				if (!currentAsk.has(key)) {
+					for (const listener of uiRequestListeners) listener({ ...req, completed: true });
+				}
+			}
+			lastUiRequests = currentAsk;
+		} else if (event === "messages" && isRecord(payload) && typeof payload.agentId === "string" && Array.isArray(payload.messages)) {
+			console.log("[SSE] Messages update - agentId:", payload.agentId, "count:", payload.messages.length);
+			for (const listener of messageListeners) listener({ agentId: payload.agentId, messages: payload.messages as ChatMessage[] });
+		} else if (event === "ui-request" && isRecord(payload)) {
+			if (Array.isArray(payload.requests)) {
+				const currentAsk = new Map<string, UiWebRequest>();
+				for (const req of payload.requests as UiWebRequest[]) {
+					currentAsk.set(`${req.agentId}::${req.requestId}`, req);
+				}
+				for (const key of currentAsk.keys()) {
+					if (!lastUiRequests.has(key)) {
+						const req = currentAsk.get(key)!;
+						for (const listener of uiRequestListeners) listener(req);
+					}
+				}
+				for (const [key, req] of lastUiRequests) {
+					if (!currentAsk.has(key)) {
+						for (const listener of uiRequestListeners) listener({ ...req, completed: true });
+					}
+				}
+				lastUiRequests = currentAsk;
+			}
+		}
+	} catch {
+		// 忽略无法解析的事件
+	}
 }
 
 function subscribe<T>(set: Set<(payload: T) => void>, callback: (payload: T) => void) {
-	ensurePolling();
+	const wasEmpty = stateListeners.size === 0 && messageListeners.size === 0 && uiRequestListeners.size === 0 && connectionListeners.size === 0;
 	set.add(callback);
+	console.log(`[SSE] Subscription added. Listener counts - state: ${stateListeners.size}, messages: ${messageListeners.size}, uiRequest: ${uiRequestListeners.size}, connection: ${connectionListeners.size}`);
+	// 首次订阅时启动 SSE 连接
+	if (wasEmpty) {
+		console.log("[SSE] First subscription, starting SSE connection...");
+		void connectSSE();
+	}
 	return () => {
 		set.delete(callback);
-		if (stateListeners.size === 0 && messageListeners.size === 0 && uiRequestListeners.size === 0 && pollTimer) {
-			window.clearInterval(pollTimer);
-			pollTimer = undefined;
-			polling = false;
+		// 无订阅时断开 SSE
+		if (stateListeners.size === 0 && messageListeners.size === 0 && uiRequestListeners.size === 0 && connectionListeners.size === 0) {
+			sseAbortController?.abort();
+			sseAbortController = null;
 		}
 	};
 }
 
 export function createBrowserApi(): PiDesktopApi {
+	console.log("[BrowserApi] Initializing browser API");
+	console.log("[BrowserApi] Auth token present:", !!authToken);
+	console.log("[BrowserApi] Protocol:", window.location.protocol);
 	return {
 		...base,
 		projects: {
@@ -274,6 +382,8 @@ export function createBrowserApi(): PiDesktopApi {
 					method: "POST",
 					body: JSON.stringify(input),
 				});
+				// Agent 创建后立即刷新状态，确保前端能看到新 Agent
+				await refreshState();
 				return result.agent;
 			},
 			stop: async (agentId) => {

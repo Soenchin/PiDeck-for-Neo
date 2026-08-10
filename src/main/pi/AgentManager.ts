@@ -92,6 +92,10 @@ export class AgentManager {
 	private readonly localEventListeners = new Set<(agentId: string, event: unknown) => void>();
 	/** 状态变更监听器（用于 PetStateBridge 等主进程内部模块订阅 AgentTab[] 聚合状态） */
 	private readonly stateListeners = new Set<(tabs: AgentTab[]) => void>();
+	/** 消息变更监听器（用于 WebServiceManager 广播单 Agent 消息更新） */
+	private readonly messagesListeners = new Set<(agentId: string, messages: ChatMessage[]) => void>();
+	/** UI 请求监听器（用于 WebServiceManager 广播 ask_question 变化） */
+	private readonly uiRequestListeners = new Set<() => void>();
 	/** 开启了 RPC 日志记录的 agent id 集合 */
 	private readonly rpcLoggingAgents = new Set<string>();
 	/** 正在执行手动压缩操作的 agent，用于区分手动压缩重启和异常崩溃 */
@@ -2478,6 +2482,18 @@ export class AgentManager {
 		return () => { this.stateListeners.delete(listener); };
 	}
 
+	/** 注册消息变更监听器（供 WebServiceManager SSE 推送使用） */
+	addMessagesListener(listener: (agentId: string, messages: ChatMessage[]) => void): () => void {
+		this.messagesListeners.add(listener);
+		return () => { this.messagesListeners.delete(listener); };
+	}
+
+	/** 注册 UI 请求监听器（供 WebServiceManager SSE 推送使用） */
+	addUiRequestListener(listener: () => void): () => void {
+		this.uiRequestListeners.add(listener);
+		return () => { this.uiRequestListeners.delete(listener); };
+	}
+
 	private notifyStateListeners(tabs: AgentTab[]) {
 		for (const listener of this.stateListeners) {
 			try { listener(tabs); } catch {}
@@ -2878,6 +2894,10 @@ export class AgentManager {
 
 		// 通知渲染进程显示交互卡片
 		this.emit(ipcChannels.agentsUiRequest, request);
+		// 通知 WebServiceManager 广播 UI 请求变化
+		for (const listener of this.uiRequestListeners) {
+			try { listener(); } catch {}
+		}
 		this.scheduleUIRequestTimeout(agentId, requestId, typed.timeout);
 	}
 
@@ -2944,6 +2964,10 @@ export class AgentManager {
 
 		// 通知渲染进程 UI 请求已完成
 		this.emit(ipcChannels.agentsUiRequest, { agentId, requestId, completed: true, ...response });
+		// 通知 WebServiceManager 广播 UI 请求变化
+		for (const listener of this.uiRequestListeners) {
+			try { listener(); } catch {}
+		}
 	}
 
 	/**
@@ -4131,10 +4155,15 @@ export class AgentManager {
 			this.messageFlushTimers.delete(agentId);
 		}
 		this.pendingMessageAgents.delete(agentId);
+		const messages = this.messages.get(agentId) ?? [];
 		this.emit(ipcChannels.agentsMessage, {
 			agentId,
-			messages: this.messages.get(agentId) ?? [],
+			messages,
 		});
+		// 通知 WebServiceManager 广播消息更新
+		for (const listener of this.messagesListeners) {
+			try { listener(agentId, messages); } catch {}
+		}
 	}
 
 	private emitThinking(agentId: string, thinking: string) {
