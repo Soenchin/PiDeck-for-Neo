@@ -2520,6 +2520,15 @@ body:not(.is-list-resizing)
   color: #fff;
   background: #059669;
 }
+
+.session-pinned-badge {
+  margin-left: 4px;
+  font-size: var(--font-size-xs);
+  line-height: 1;
+  opacity: 0.7;
+  user-select: none;
+}
+
 .session-row.active .conversation-title strong {
   color: var(--color-text-primary);
   font-weight: 600;

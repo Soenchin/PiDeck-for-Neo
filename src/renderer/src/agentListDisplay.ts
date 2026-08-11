@@ -1,4 +1,5 @@
 import type { AgentTab, SessionSummary } from "../../shared/types";
+import { normalizeSessionPath, isSameSessionPath as isSameSessionPathUtil } from "../../shared/sessionPath";
 
 const DEFAULT_VISIBLE_PROJECT_CHILD_LIMIT = 5;
 
@@ -11,6 +12,8 @@ export type ProjectChildItem =
 			/** 该 Agent 对应的会话来源（历史会话激活时从 SessionSummary 传递） */
 			source?: "pi" | "codex" | "claude" | "opencode";
 			codexSubagents: SessionSummary[];
+			/** 置顶时间戳；置顶会话优先排序 */
+			pinnedAt?: number;
 	  }
 	| {
 			type: "session";
@@ -18,6 +21,8 @@ export type ProjectChildItem =
 			session: SessionSummary;
 			sortAt: number;
 			codexSubagents: SessionSummary[];
+			/** 置顶时间戳；置顶会话优先排序 */
+			pinnedAt?: number;
 	  };
 
 export type ProjectAgentSessionDisplay = {
@@ -26,21 +31,12 @@ export type ProjectAgentSessionDisplay = {
 	hiddenChildCount: number;
 };
 
-// 会话文件路径可能来自扫描器或 Agent 状态回写，比较时统一分隔符和大小写，避免同一历史会话重复显示/重复激活。
-export function normalizeSessionPathForCompare(sessionPath?: string) {
-	return sessionPath?.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
-
-export function isSameSessionPath(left?: string, right?: string) {
-	const normalizedLeft = normalizeSessionPathForCompare(left);
-	const normalizedRight = normalizeSessionPathForCompare(right);
-	return Boolean(
-		normalizedLeft && normalizedRight && normalizedLeft === normalizedRight,
-	);
-}
+// 向后兼容：导出为旧名
+export const normalizeSessionPathForCompare = normalizeSessionPath;
+export const isSameSessionPath = isSameSessionPathUtil;
 
 function getSessionKey(sessionPath?: string) {
-	return normalizeSessionPathForCompare(sessionPath);
+	return normalizeSessionPath(sessionPath);
 }
 
 function getCodexParentKey(session: SessionSummary) {
@@ -131,6 +127,8 @@ export function getProjectAgentSessionDisplay({
 					codexSubagents: linkedSession
 						? (codexSubagentsByParent.get(getCodexParentKey(linkedSession)) ?? [])
 						: [],
+					// Agent 继承对应会话的置顶状态
+					pinnedAt: linkedSession?.pinnedAt,
 				};
 			},
 		),
@@ -142,6 +140,7 @@ export function getProjectAgentSessionDisplay({
 				session,
 				sortAt: session.updatedAt,
 				codexSubagents: codexSubagentsByParent.get(getCodexParentKey(session)) ?? [],
+				pinnedAt: session.pinnedAt,
 			})),
 		...unkeyedSessions.map<ProjectChildItem>((session) => ({
 			type: "session",
@@ -149,14 +148,29 @@ export function getProjectAgentSessionDisplay({
 			session,
 			sortAt: session.updatedAt,
 			codexSubagents: codexSubagentsByParent.get(getCodexParentKey(session)) ?? [],
+			pinnedAt: session.pinnedAt,
 		})),
-	].sort((left, right) => right.sortAt - left.sortAt);
+	];
 
+	// 置顶会话优先排序：置顶按 pinnedAt 倒序，普通按 sortAt 倒序
+	const pinnedChildren = children.filter((child) => child.pinnedAt != null);
+	const normalChildren = children.filter((child) => child.pinnedAt == null);
+	
+	pinnedChildren.sort((left, right) => (right.pinnedAt ?? 0) - (left.pinnedAt ?? 0));
+	normalChildren.sort((left, right) => right.sortAt - left.sortAt);
+
+	const sortedChildren = [...pinnedChildren, ...normalChildren];
+
+	// 置顶会话绕过默认显示数量限制，普通会话补足剩余名额
 	const limit = visibleChildCount ?? DEFAULT_VISIBLE_PROJECT_CHILD_LIMIT;
-	const visibleChildren = children.slice(0, limit);
+	const visibleChildren = [
+		...pinnedChildren,
+		...normalChildren.slice(0, Math.max(0, limit - pinnedChildren.length)),
+	];
+	
 	return {
-		children,
+		children: sortedChildren,
 		visibleChildren,
-		hiddenChildCount: Math.max(0, children.length - visibleChildren.length),
+		hiddenChildCount: Math.max(0, normalChildren.length - (limit - pinnedChildren.length)),
 	};
 }

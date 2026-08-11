@@ -78,6 +78,7 @@ import type {
 	PromptStoreItem,
 	YaoPromptListResult,
 	YaoPromptDetailResult,
+	SessionSummary,
 } from "../shared/types";
 import { ProjectStore } from "./projects/ProjectStore";
 import { FileSystemService } from "./fs/FileSystemService";
@@ -85,6 +86,7 @@ import { AgentManager } from "./pi/AgentManager";
 import { PiLocator } from "./pi/PiLocator";
 import { testPiProxy } from "./pi/PiProxyTester";
 import { SessionScanner } from "./sessions/SessionScanner";
+import { SessionPreferenceStore } from "./sessions/SessionPreferenceStore";
 import { CodexSessionImporter } from "./sessions/CodexSessionImporter";
 import { ClaudeSessionImporter } from "./sessions/ClaudeSessionImporter";
 import { OpenCodeSessionImporter } from "./sessions/OpenCodeSessionImporter";
@@ -142,6 +144,7 @@ let isQuitting = false;
 let projectStore: ProjectStore;
 let fileSystemService: FileSystemService;
 let sessionScanner: SessionScanner;
+let sessionPreferenceStore: SessionPreferenceStore;
 let codexSessionImporter: CodexSessionImporter;
 let claudeSessionImporter: ClaudeSessionImporter;
 let openCodeSessionImporter: OpenCodeSessionImporter;
@@ -1529,8 +1532,7 @@ function registerIpc() {
 	ipcMain.handle(
 		ipcChannels.sessionsList,
 		async (_event, projectId?: string) => {
-			const project = projectId ? projectStore.get(projectId) : undefined;
-			return sessionScanner.list(project?.path);
+			return listProjectSessions(projectId);
 		},
 	);
 	ipcMain.handle(
@@ -1561,13 +1563,29 @@ function registerIpc() {
 		});
 		if (usingAgent) {
 			throw new Error(
-				`会话“${usingAgent.title}”正在使用中，请先关闭 Agent 后再删除`,
+				`会话"${usingAgent.title}"正在使用中，请先关闭 Agent 后再删除`,
 			);
 		}
 
 		await sessionScanner.delete(filePath);
+		// 删除会话时同步清理置顶偏好
+		await sessionPreferenceStore.remove(filePath);
 		void appLogger.info("session", "Session deleted", { filePath });
 	});
+	ipcMain.handle(
+		ipcChannels.sessionsSetPinned,
+		async (_event, filePath: string, pinned: boolean) => {
+			// 校验路径是否是已扫描到的合法会话，拒绝任意路径
+			const allSessions = await sessionScanner.list();
+			const session = allSessions.find((s) => s.filePath === filePath);
+			if (!session) {
+				throw new Error("会话文件不存在或不属于 PiDeck 管理范围");
+			}
+
+			await sessionPreferenceStore.setPinned(filePath, pinned);
+			void appLogger.info("session", pinned ? "Session pinned" : "Session unpinned", { filePath });
+		},
+	);
 	ipcMain.handle(
 		ipcChannels.sessionsReadMessages,
 		async (_event, filePath: string) => {
@@ -2932,12 +2950,33 @@ async function detectExternalEditorsOnFirstLaunch() {
 	void appLogger.info("editor", "External editors detected on first launch", { count: detected.length });
 }
 
+/**
+ * 统一会话列表出口：扫描会话文件并附加 PiDeck 偏好（置顶状态）
+ * 桌面 IPC 和 LAN Web 都通过这个函数获取会话列表，保证置顶状态一致
+ */
+async function listProjectSessions(projectId?: string): Promise<SessionSummary[]> {
+	const project = projectId ? projectStore.get(projectId) : undefined;
+	const sessions = await sessionScanner.list(project?.path);
+	
+	// 附加置顶状态
+	for (const session of sessions) {
+		const pref = sessionPreferenceStore.get(session.filePath);
+		if (pref?.pinnedAt) {
+			session.pinned = true;
+			session.pinnedAt = pref.pinnedAt;
+		}
+	}
+	
+	return sessions;
+}
+
 app.whenReady().then(async () => {
 	projectStore = new ProjectStore();
 	// 立即启动项目列表加载，确保 renderer 有机会发房间 IPC 之前 projectStoreReady 已指向真实任务。
 	projectStoreReady = projectStore.load().then(() => undefined);
 	fileSystemService = new FileSystemService();
 	sessionScanner = new SessionScanner();
+	sessionPreferenceStore = new SessionPreferenceStore();
 	codexSessionImporter = new CodexSessionImporter();
 	claudeSessionImporter = new ClaudeSessionImporter();
 	openCodeSessionImporter = new OpenCodeSessionImporter();
@@ -2967,10 +3006,7 @@ app.whenReady().then(async () => {
 	webServiceManager = new WebServiceManager({
 		listProjects: () => projectStore.list(),
 		listAgents: () => agentManager.list(),
-		listSessions: (projectId) => {
-			const project = projectStore.get(projectId);
-			return sessionScanner.list(project?.path);
-		},
+		listSessions: (projectId) => listProjectSessions(projectId),
 		getMessages: (agentId) => agentManager.getMessages(agentId),
 		createAgent: (input) => agentManager.create(input),
 		sendPrompt: (input) => agentManager.sendPrompt(input),
@@ -3008,6 +3044,7 @@ app.whenReady().then(async () => {
 	projectStoreReady = projectStoreReady.then(() => roomManager.initOnStartup());
 
 	await settingsStore.load();
+	await sessionPreferenceStore.load();
 
 	// 根据已加载的 WSL 设置配置会话扫描器，使其能同时扫描 WSL 中的 pi 会话目录
 	{

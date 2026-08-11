@@ -35,6 +35,7 @@ export const ipcChannels = {
 	sessionsCopy: "sessions:copy",
 	sessionsExportHtml: "sessions:export-html",
 	sessionsDelete: "sessions:delete",
+	sessionsSetPinned: "sessions:set-pinned",
 	sessionsReadMessages: "sessions:read-messages",
 	codexSessionsScan: "codex-sessions:scan",
 	codexSessionsImport: "codex-sessions:import",

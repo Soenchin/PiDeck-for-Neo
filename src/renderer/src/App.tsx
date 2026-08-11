@@ -5682,6 +5682,11 @@ ${goalTextRef.current}
                                 </span>
                               )}
                               <strong>{agent.title}</strong>
+                              {child.pinnedAt && (
+                                <span className="session-pinned-badge" title={t("menu.pinSession")}>
+                                  📌
+                                </span>
+                              )}
                               {child.source && child.source !== "pi" && (
                                 <span className={`session-source-badge ${child.source}`}>
                                   {t(`sessionSource.${child.source}` as any)}
@@ -5729,6 +5734,11 @@ ${goalTextRef.current}
                             <strong title={session.name || t("common.untitled")}>
                               {session.name || t("common.untitled")}
                             </strong>
+                            {session.pinned && (
+                              <span className="session-pinned-badge" title={t("menu.pinSession")}>
+                                📌
+                              </span>
+                            )}
                             {session.source && session.source !== "pi" && (
                               <span className={`session-source-badge ${session.source}`}>
                                 {t(`sessionSource.${session.source}` as any)}
@@ -7062,6 +7072,22 @@ ${goalTextRef.current}
           }}
           onCopySession={() => {
             void copySidebarSession(sessionMenu.projectId, sessionMenu.session);
+          }}
+          onTogglePin={async () => {
+            const session = sessionMenu.session;
+            const projectId = sessionMenu.projectId;
+            setSessionMenu(null);
+            try {
+              await api.sessions.setPinned(session.filePath, !session.pinned);
+              // 刷新当前项目的会话列表
+              await refreshProjectSessions(projectId);
+              showToast(
+                session.pinned ? t("menu.unpinSession") : t("menu.pinSession"),
+                1500,
+              );
+            } catch (err) {
+              showToast(String(err), 3000);
+            }
           }}
           // 历史会话的 RPC 日志在 agent 启动后再通过右键菜单开启记录
           onOpenSessionFile={() => {

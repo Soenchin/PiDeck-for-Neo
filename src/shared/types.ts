@@ -130,6 +130,10 @@ export type SessionSummary = {
 	codexParentThreadId?: string;
 	codexAgentRole?: string;
 	codexAgentNickname?: string;
+	/** 置顶状态（PiDeck 界面偏好，不写入 pi 会话文件） */
+	pinned?: boolean;
+	/** 置顶时间戳，用于置顶会话间的稳定排序 */
+	pinnedAt?: number;
 };
 
 export type CodexImportStatus = "new" | "current" | "outdated";

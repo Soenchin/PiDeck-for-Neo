@@ -5663,6 +5663,7 @@ export function SessionContextMenu(props: {
 	onOpenSessionFile?: () => void;
 	onShowLogs?: () => void;
 	onDeleteSession: () => void;
+	onTogglePin?: () => void;
 }) {
 	return (
 		<div className="context-backdrop" onClick={props.onClose}>
@@ -5671,6 +5672,11 @@ export function SessionContextMenu(props: {
 				style={{ left: props.menu.x, top: props.menu.y }}
 				onClick={(event) => event.stopPropagation()}
 			>
+				{props.onTogglePin && (
+					<button disabled={Boolean(props.actionLoading)} onClick={props.onTogglePin}>
+						{props.menu.session.pinned ? t("menu.unpinSession") : t("menu.pinSession")}
+					</button>
+				)}
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onRename}>{t("common.rename")}</button>
 				<button disabled={Boolean(props.actionLoading)} onClick={props.onCopySession}>
 					{props.actionLoading === "copy" && <span className="mini-loader" />}

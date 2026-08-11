@@ -5,6 +5,7 @@ import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { SessionSummary } from "../../shared/types";
 import { getCodexSessionThreadInfo } from "../../shared/codexSessionMeta";
+import { normalizeSessionPath } from "../../shared/sessionPath";
 
 export class SessionScanner {
   private readonly root = join(app.getPath("home"), ".pi", "agent", "sessions");
@@ -374,7 +375,7 @@ export class SessionScanner {
     return {
       id: filePath,
       filePath,
-      projectPath: projectPath ? this.normalize(projectPath) : this.inferProjectPathFromFile(filePath),
+      projectPath: projectPath ? normalizeSessionPath(projectPath) : this.inferProjectPathFromFile(filePath),
       name: inferredName,
       preview: preview.slice(0, 160),
       updatedAt: info.mtimeMs,
@@ -453,9 +454,9 @@ export class SessionScanner {
   }
 
   private async isSameProject(summary: SessionSummary, projectPath: string) {
-    const normalizedProject = this.normalize(projectPath);
+    const normalizedProject = normalizeSessionPath(projectPath);
     const normalizedSessionProject = summary.projectPath
-      ? this.normalize(summary.projectPath)
+      ? normalizeSessionPath(summary.projectPath)
       : "";
     // 只认 session 自身的 cwd/projectPath 精确匹配。
     // 旧逻辑会把父目录会话（如 X:\CC）在正文提到子项目路径时误归到 pets 等子项目，
@@ -467,14 +468,14 @@ export class SessionScanner {
     // `--x--cc-projects-pets--` 这类子串误伤。
     if (!normalizedSessionProject) {
       const token = this.safePathToken(projectPath);
-      const parts = this.normalize(summary.filePath).split("/");
+      const parts = normalizeSessionPath(summary.filePath).split("/");
       return parts.some((part) => part === token);
     }
     return false;
   }
 
   private normalize(path: string) {
-    return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    return normalizeSessionPath(path);
   }
 
   async readMessages(filePath: string): Promise<Array<{ role: string; content: string; timestamp: number }>> {
@@ -498,9 +499,9 @@ export class SessionScanner {
   }
 
   private safePathToken(path: string) {
-    const normalized = path.replace(/\\/g, "/");
+    const normalized = normalizeSessionPath(path);
     const win = normalized.match(/^([A-Za-z]):\/(.+)$/);
-    if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`.toLowerCase();
-    return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`.toLowerCase();
+    if (win) return `--${win[1]}--${win[2].replace(/\//g, "-")}--`;
+    return `--${normalized.replace(/^\//, "").replace(/\//g, "-")}--`;
   }
 }
