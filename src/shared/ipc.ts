@@ -296,4 +296,12 @@ export const ipcChannels = {
 	roomNewTable: "room:new-table",
 	roomSetModel: "room:set-model",
 	roomState: "room:state",
+
+	// ===== 自动化任务 =====
+	/** 主进程 → 渲染进程：显示每日总结审核弹窗 */
+	dailySummaryReview: "daily-summary:review",
+	/** 渲染进程 → 主进程：确认保存总结 */
+	dailySummaryConfirm: "daily-summary:confirm",
+	/** 渲染进程 → 主进程：取消总结 */
+	dailySummaryCancel: "daily-summary:cancel",
 } as const;

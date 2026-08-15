@@ -23,6 +23,7 @@ import type {
 	OpenCodeSessionSummary,
 	ConfigFileDiagnostic,
 	DraftMeta,
+	DailySummaryReviewRequest,
 	CreateAgentInput,
 	CreatePiSkillInput,
 	CreateProjectSkillInput,
@@ -924,6 +925,14 @@ const api = {
 			ipcRenderer.invoke(ipcChannels.scratchPadExport, draftPath) as Promise<boolean>,
 	},
 	// ===== Neo × ROCKET 双 Agent 房间 =====
+	automation: {
+		onDailySummaryReview: (callback: (request: DailySummaryReviewRequest) => void) =>
+			subscribe(ipcChannels.dailySummaryReview, callback),
+		confirmDailySummary: (id: string, summary: string) =>
+			ipcRenderer.invoke(ipcChannels.dailySummaryConfirm, id, summary) as Promise<boolean>,
+		cancelDailySummary: (id: string) =>
+			ipcRenderer.invoke(ipcChannels.dailySummaryCancel, id) as Promise<boolean>,
+	},
 	room: {
 		getState: () =>
 			ipcRenderer.invoke(ipcChannels.roomGetState) as Promise<RoomState>,

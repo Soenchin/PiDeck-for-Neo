@@ -79,6 +79,7 @@ import type {
 	YaoPromptListResult,
 	YaoPromptDetailResult,
 	SessionSummary,
+	DailySummaryReviewRequest,
 } from "../shared/types";
 import { ProjectStore } from "./projects/ProjectStore";
 import { FileSystemService } from "./fs/FileSystemService";
@@ -92,6 +93,7 @@ import { ClaudeSessionImporter } from "./sessions/ClaudeSessionImporter";
 import { OpenCodeSessionImporter } from "./sessions/OpenCodeSessionImporter";
 import { SettingsStore } from "./settings/SettingsStore";
 import { applyDesktopProxy } from "./settings/DesktopProxy";
+import { AutomationScheduler } from "./automation";
 import { GitService } from "./git/GitService";
 import { WorktreeService } from "./git/WorktreeService";
 import { ConfigManager } from "./config/ConfigManager";
@@ -150,6 +152,8 @@ let codexSessionImporter: CodexSessionImporter;
 let claudeSessionImporter: ClaudeSessionImporter;
 let openCodeSessionImporter: OpenCodeSessionImporter;
 let settingsStore: SettingsStore;
+let automationScheduler: AutomationScheduler;
+const pendingDailySummaryReviews = new Map<string, (summary: string | null) => void>();
 let worktreeService: WorktreeService;
 let gitService: GitService;
 let piLocator: PiLocator;
@@ -1137,6 +1141,19 @@ function registerFeishuIpc() {
 	});
 }
 
+function requestDailySummaryReview(request: DailySummaryReviewRequest): Promise<string | null> {
+	return new Promise((resolve, reject) => {
+		if (!mainWindow || mainWindow.isDestroyed()) {
+			reject(new Error("主窗口不可用，无法审核每日总结"));
+			return;
+		}
+		pendingDailySummaryReviews.set(request.id, resolve);
+		mainWindow.show();
+		mainWindow.focus();
+		mainWindow.webContents.send(ipcChannels.dailySummaryReview, request);
+	});
+}
+
 function registerIpc() {
 	ipcMain.handle(ipcChannels.projectsList, () => projectStore.list());
 	ipcMain.handle(ipcChannels.editorsList, async () => listConfiguredExternalEditors(settingsStore.get()));
@@ -2083,6 +2100,21 @@ function registerIpc() {
 		mainWindow.close();
 	});
 
+	ipcMain.handle(ipcChannels.dailySummaryConfirm, (_event, id: string, summary: string) => {
+		const resolve = pendingDailySummaryReviews.get(id);
+		if (!resolve) return false;
+		pendingDailySummaryReviews.delete(id);
+		resolve(summary);
+		return true;
+	});
+	ipcMain.handle(ipcChannels.dailySummaryCancel, (_event, id: string) => {
+		const resolve = pendingDailySummaryReviews.get(id);
+		if (!resolve) return false;
+		pendingDailySummaryReviews.delete(id);
+		resolve(null);
+		return true;
+	});
+
 	ipcMain.handle(ipcChannels.settingsGet, () => settingsStore.get());
 	ipcMain.handle(
 		ipcChannels.settingsUpdate,
@@ -2131,6 +2163,11 @@ function registerIpc() {
 				} else {
 					sessionScanner.clearWsl();
 				}
+			}
+			// 自动化任务配置变更时重新加载调度器
+			if ("automation" in patch) {
+				automationScheduler?.reload(settings);
+				console.log("[Main] 自动化调度器已重新加载");
 			}
 			// 返回最新快照而不是旧对象：Web 令牌可能在上面被懒生成，
 			// 渲染进程需要立刻看到它才能展示/复制。
@@ -3054,6 +3091,14 @@ app.whenReady().then(async () => {
 	await settingsStore.load();
 	await sessionPreferenceStore.load();
 
+	automationScheduler = new AutomationScheduler(
+		sessionScanner,
+		agentManager,
+		requestDailySummaryReview,
+	);
+	automationScheduler.start(settingsStore.get());
+	console.log("[Main] 自动化调度器已启动");
+
 	// 根据已加载的 WSL 设置配置会话扫描器，使其能同时扫描 WSL 中的 pi 会话目录
 	{
 		const { wslEnabled, wslDistro, wslUser } = settingsStore.get();
@@ -3210,6 +3255,9 @@ async function removeStalePiDeckExtension(extensionName: string): Promise<void> 
 
 app.on("before-quit", () => {
 	isQuitting = true;
+	automationScheduler?.stop();
+	for (const resolve of pendingDailySummaryReviews.values()) resolve(null);
+	pendingDailySummaryReviews.clear();
 	tray?.destroy();
 	tray = null;
 	void webServiceManager?.stop();

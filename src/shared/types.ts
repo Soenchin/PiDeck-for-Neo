@@ -347,6 +347,68 @@ export type AutoSessionTitleState = {
 	locked: boolean;
 };
 
+export type DailySummarySettings = {
+	enabled: boolean;
+	/** 触发时间，格式 HH:mm，例如 "23:00" */
+	time: string;
+	/** 是否需要审核后再保存 */
+	requireReview: boolean;
+	/** 最小用户消息轮数，少于此值时跳过总结 */
+	minTurns: number;
+};
+
+export type AutonomousModeSettings = {
+	enabled: boolean;
+	idleThresholdMinutes: number;
+	activities: {
+		search: boolean;
+		games: boolean;
+	};
+	permissions: {
+		read: boolean;
+		writeNew: boolean;
+		edit: boolean;
+		delete: boolean;
+		git: boolean;
+	};
+	silentReturn: boolean;
+	logPath: string;
+};
+
+export type AutomationSettings = {
+	dailySummary: DailySummarySettings;
+	autonomousMode: AutonomousModeSettings;
+};
+
+export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
+	dailySummary: {
+		enabled: false,
+		time: "23:00",
+		requireReview: true,
+		minTurns: 5,
+	},
+	autonomousMode: {
+		enabled: false,
+		idleThresholdMinutes: 30,
+		activities: { search: true, games: true },
+		permissions: {
+			read: true,
+			writeNew: true,
+			edit: false,
+			delete: false,
+			git: false,
+		},
+		silentReturn: true,
+		logPath: "autonomous-logs",
+	},
+};
+
+export type DailySummaryReviewRequest = {
+	id: string;
+	summary: string;
+	date: string;
+};
+
 export type AppSettings = {
 	useNativeTitleBar: boolean;
 	showNativeMenu: boolean;
@@ -455,6 +517,12 @@ export type AppSettings = {
 	fontFamilyMono: AppFontMonoMode;
 	/** fontFamilyMono=custom 时的自定义字体族栈，原样写入 CSS font-family */
 	fontFamilyMonoCustom: string;
+
+	// ── 自动化任务配置；字段保持可选以兼容旧版 settings.json ──
+	automation?: {
+		dailySummary?: DailySummarySettings;
+		autonomousMode?: AutonomousModeSettings;
+	};
 };
 
 // ── 桌面宠物类型 ──

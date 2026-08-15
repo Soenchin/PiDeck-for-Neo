@@ -8,7 +8,7 @@ export function TextField(props: {
 	description?: ReactNode;
 	placeholder?: string;
 	disabled?: boolean;
-	type?: "text" | "number" | "password";
+	type?: "text" | "number" | "password" | "time";
 	min?: number;
 	max?: number;
 	onBlur?: () => void;

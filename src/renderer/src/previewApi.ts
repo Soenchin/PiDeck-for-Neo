@@ -840,6 +840,11 @@ export function createPreviewApi(): PiDesktopApi {
 			save: async () => {},
 			export: async () => false,
 		},
+		automation: {
+			onDailySummaryReview: () => () => {},
+			confirmDailySummary: async () => false,
+			cancelDailySummary: async () => false,
+		},
 		room: {
 			getState: async () => ({ status: "idle" }),
 			getMessages: async () => ({ neo: [], rocket: [] }),

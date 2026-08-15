@@ -183,6 +183,11 @@ const OpenCodeImportModal = lazy(() => import("./components/app/ImportModals").t
 const ProjectResourcesModal = lazy(() => import("./components/app/ProjectResourcesModal").then((m) => ({ default: m.ProjectResourcesModal })));
 const UpdateErrorModalLazy = lazy(() => import("./components/app/UpdateModals").then((m) => ({ default: m.UpdateErrorModal })));
 const UpToDateModalLazy = lazy(() => import("./components/app/UpdateModals").then((m) => ({ default: m.UpToDateModal })));
+const DailySummaryReviewModal = lazy(() =>
+  import("./components/app/DailySummaryReviewModal").then((module) => ({
+    default: module.DailySummaryReviewModal,
+  })),
+);
 import { createDefaultExternalEditorSettings } from "../../shared/types";
 import type {
   AgentRuntimeState,
@@ -216,6 +221,7 @@ import type {
   ComposerAgentMode,
   ThinkingUpdate,
   ProviderUsageSnapshot,
+  DailySummaryReviewRequest,
 } from "../../shared/types";
 
 const isLanWeb =
@@ -1229,6 +1235,15 @@ export function App() {
     Record<string, DrawerPanel>
   >({});
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+
+  const [dailySummaryReview, setDailySummaryReview] =
+    useState<DailySummaryReviewRequest | null>(null);
+
+  useEffect(
+    () => api.automation.onDailySummaryReview(setDailySummaryReview),
+    [],
+  );
+
   const chatPaneRef = useRef<HTMLElement | null>(null);
   const sessionComboRef = useRef<HTMLDivElement | null>(null);
   const chatHeaderRef = useRef<HTMLElement | null>(null);
@@ -7374,6 +7389,27 @@ ${goalTextRef.current}
           onChange={updateSettings}
         />
       </Suspense>
+      )}
+      {dailySummaryReview && (
+        <Suspense fallback={null}>
+          <DailySummaryReviewModal
+            summary={dailySummaryReview.summary}
+            date={dailySummaryReview.date}
+            onConfirm={(summary) => {
+              const requestId = dailySummaryReview.id;
+              void api.automation.confirmDailySummary(requestId, summary)
+                .then((accepted) => {
+                  if (accepted) setDailySummaryReview(null);
+                })
+                .catch(() => showToast(t("dailySummary.saveFailed")));
+            }}
+            onCancel={() => {
+              const requestId = dailySummaryReview.id;
+              setDailySummaryReview(null);
+              void api.automation.cancelDailySummary(requestId);
+            }}
+          />
+        </Suspense>
       )}
       {feedbackOpen && (
         <FeedbackModal

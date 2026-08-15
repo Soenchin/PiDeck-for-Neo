@@ -1,0 +1,83 @@
+.daily-summary-review-modal {
+	position: relative;
+	width: min(1300px, calc(100vw - 48px));
+	height: min(850px, calc(100vh - 48px));
+	background: var(--color-bg-panel);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-xl);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.daily-summary-review-modal .modal-header {
+	padding: var(--space-6) var(--space-6) var(--space-4);
+	border-bottom: 1px solid var(--color-border-subtle);
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--space-4);
+}
+
+.daily-summary-review-modal .modal-header h2 {
+	margin: 0;
+	font-size: var(--font-size-h3);
+	font-weight: 600;
+	color: var(--color-text-primary);
+}
+
+.daily-summary-review-modal .modal-subtitle {
+	margin: var(--space-2) 0 0;
+	font-size: var(--font-size-body);
+	color: var(--color-text-secondary);
+}
+
+.daily-summary-review-modal .modal-body {
+	flex: 1;
+	min-height: 0;
+	padding: var(--space-6);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.daily-summary-review-modal .modal-label {
+	font-size: var(--font-size-control);
+	font-weight: 500;
+	color: var(--color-text-primary);
+}
+
+.daily-summary-review-modal .summary-textarea {
+	flex: 1;
+	width: 100%;
+	min-height: 240px;
+	padding: var(--space-3);
+	border: 1px solid var(--color-border-subtle);
+	border-radius: var(--radius-md);
+	background: var(--color-bg-muted);
+	color: var(--color-text-primary);
+	font-size: var(--font-size-body);
+	font-family: var(--font-family-base);
+	line-height: var(--line-height-body);
+	resize: none;
+}
+
+.daily-summary-review-modal .summary-textarea:focus-visible {
+	outline: none;
+	border-color: var(--color-accent);
+	box-shadow: var(--focus-ring);
+}
+
+.daily-summary-review-modal .modal-hint {
+	margin: 0;
+	font-size: var(--font-size-caption);
+	color: var(--color-text-tertiary);
+}
+
+.daily-summary-review-modal .modal-footer {
+	padding: var(--space-4) var(--space-6);
+	border-top: 1px solid var(--color-border-subtle);
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--space-3);
+}

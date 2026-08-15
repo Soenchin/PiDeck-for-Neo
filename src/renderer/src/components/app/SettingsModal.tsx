@@ -9,12 +9,15 @@ import {
 	RefreshCw,
 	Minus,
 	Plus,
+	Clock,
 } from "lucide-react";
 import { t } from "../../i18n";
 import { Button } from "../ui/Button";
 import { CloseIconButton, IconButton } from "../ui/IconButton";
 import { SelectField } from "../ui/SelectField";
 import { TextField } from "../ui/TextField";
+import { AutomationTab } from "./AutomationTab";
+import { SettingsSection, SettingSwitch } from "./SettingsControls";
 import type { AppSettings, AppInfo, PiInstallStatus, PiUpdateCheckResult, PiCliUpdateResult, PetManifest } from "../../../../shared/types";
 import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
 
@@ -22,46 +25,7 @@ const ZOOM_FACTOR_MIN = 0.8;
 const ZOOM_FACTOR_MAX = 1.5;
 const ZOOM_FACTOR_STEP = 0.05;
 
-type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet" | "storage";
-
-function SettingsSection(props: {
-	title: string;
-	description?: string;
-	children: ReactNode;
-}) {
-	return (
-		<section className="settings-section">
-			<div className="settings-section-header">
-				<strong>{props.title}</strong>
-				{props.description && <small>{props.description}</small>}
-			</div>
-			<div className="settings-section-body">{props.children}</div>
-		</section>
-	);
-}
-
-function SettingSwitch(props: {
-	title: string;
-	description?: string;
-	checked: boolean;
-	disabled?: boolean;
-	onChange: (checked: boolean) => void;
-}) {
-	return (
-		<label className="setting-switch-row">
-			<span>
-				<strong>{props.title}</strong>
-				{props.description && <small>{props.description}</small>}
-			</span>
-			<input
-				type="checkbox"
-				checked={props.checked}
-				disabled={props.disabled}
-				onChange={(event) => props.onChange(event.target.checked)}
-			/>
-		</label>
-	);
-}
+type SettingsTabId = "base" | "proxy" | "web" | "dev" | "pet" | "automation" | "storage";
 
 export function SettingsModal(props: {
 	settings: AppSettings;
@@ -186,6 +150,11 @@ export function SettingsModal(props: {
 			id: "pet",
 			label: t("settings.tabs.pet"),
 			icon: <PawPrint size={16} />,
+		},
+		{
+			id: "automation",
+			label: t("settings.tabs.automation"),
+			icon: <Clock size={16} />,
 		},
 		{
 			id: "storage",
@@ -934,6 +903,12 @@ export function SettingsModal(props: {
 									</div>
 								</SettingsSection>
 							</>
+						)}
+						{activeTab === "automation" && (
+							<AutomationTab
+								settings={props.settings}
+								onChange={props.onChange}
+							/>
 						)}
 						{activeTab === "pet" && (
 							<>

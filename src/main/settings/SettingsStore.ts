@@ -2,7 +2,11 @@ import { app, BrowserWindow, Menu } from "electron";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createDefaultExternalEditorSettings, type AppSettings } from "../../shared/types";
+import {
+	createDefaultExternalEditorSettings,
+	DEFAULT_AUTOMATION_SETTINGS,
+	type AppSettings,
+} from "../../shared/types";
 
 /** pi agent 的 settings.json 路径（~/.pi/agent/settings.json） */
 function piAgentSettingsPath() {
@@ -83,6 +87,8 @@ const defaultSettings: AppSettings = {
   fontFamilyBaseCustom: "",
   fontFamilyMono: "commit-mono",
   fontFamilyMonoCustom: "",
+
+  automation: DEFAULT_AUTOMATION_SETTINGS,
 };
 
 export class SettingsStore {
@@ -99,6 +105,24 @@ export class SettingsStore {
         externalEditors: {
           ...createDefaultExternalEditorSettings(),
           ...(parsed.externalEditors ?? {}),
+        },
+        automation: {
+          dailySummary: {
+            ...DEFAULT_AUTOMATION_SETTINGS.dailySummary,
+            ...(parsed.automation?.dailySummary ?? {}),
+          },
+          autonomousMode: {
+            ...DEFAULT_AUTOMATION_SETTINGS.autonomousMode,
+            ...(parsed.automation?.autonomousMode ?? {}),
+            activities: {
+              ...DEFAULT_AUTOMATION_SETTINGS.autonomousMode.activities,
+              ...(parsed.automation?.autonomousMode?.activities ?? {}),
+            },
+            permissions: {
+              ...DEFAULT_AUTOMATION_SETTINGS.autonomousMode.permissions,
+              ...(parsed.automation?.autonomousMode?.permissions ?? {}),
+            },
+          },
         },
       };
     } catch {
