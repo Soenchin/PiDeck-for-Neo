@@ -607,8 +607,12 @@ export class AgentManager {
 			});
 		});
 		// 隔离启动选项随 runtime 保存，以便进程崩溃自动重连时复用同样的 agentDir / noExtensions。
-		const launchOptions = (input.isolatedAgentDir || input.noExtensions)
-			? { agentDir: input.isolatedAgentDir, noExtensions: input.noExtensions }
+		const launchOptions = (input.isolatedAgentDir || input.noExtensions || input.model)
+			? {
+				agentDir: input.isolatedAgentDir,
+				noExtensions: input.noExtensions,
+				model: input.model,
+			}
 			: undefined;
 		const runtime: AgentRuntime = { tab, process, launchOptions };
 		this.agents.set(id, runtime);
@@ -4257,5 +4261,9 @@ type AgentRuntime = {
 	tab: AgentTab;
 	process: PiProcess;
 	/** 隔离启动选项，随 runtime 保存以在自动重连时复用。 */
-	launchOptions?: { agentDir?: string; noExtensions?: boolean };
+	launchOptions?: {
+		agentDir?: string;
+		noExtensions?: boolean;
+		model?: { provider: string; id: string };
+	};
 };

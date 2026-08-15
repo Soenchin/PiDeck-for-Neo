@@ -977,6 +977,8 @@ export type CreateAgentInput = {
 	projectId: string;
 	title?: string;
 	sessionPath?: string;
+	/** 启动 Agent 时固定使用的模型；未提供时沿用 Pi 全局默认模型。 */
+	model?: { provider: string; id: string };
 	/**
 	 * 隔离启动选项。仅用于需要与全局 Neo 环境彻底隔离的 Agent（如 ROCKET）。
 	 * - isolatedAgentDir：重定向 pi 的 agentDir（PI_CODING_AGENT_DIR），

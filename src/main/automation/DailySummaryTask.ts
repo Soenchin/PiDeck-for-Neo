@@ -12,6 +12,7 @@ export type DailySummaryReviewHandler = (
 ) => Promise<string | null>;
 
 const AGENT_TIMEOUT_MS = 15 * 60 * 1000;
+const DAILY_SUMMARY_MODEL = { provider: "Xiaomi", id: "mimo-v2.5-pro" } as const;
 
 export class DailySummaryTask {
 	constructor(
@@ -32,26 +33,36 @@ export class DailySummaryTask {
 		}
 
 		const date = formatLocalDate(new Date());
-		let summary = await this.generateSummary(messages, date);
-		if (this.config.requireReview) {
-			const reviewed = await this.requestReview({
-				id: randomUUID(),
-				summary,
-				date,
-			});
-			if (reviewed === null) {
-				console.log("[DailySummaryTask] 用户取消了每日总结保存");
-				return;
-			}
-			summary = reviewed.trim();
-			if (!summary) {
-				console.log("[DailySummaryTask] 审核后的总结为空，跳过保存");
-				return;
-			}
-		}
+		const agent = await this.agentManager.create({
+			projectId: "builtin-chat",
+			title: `每日总结 ${date}`,
+			model: DAILY_SUMMARY_MODEL,
+		});
 
-		await this.saveSummary(summary, date);
-		console.log("[DailySummaryTask] 每日总结任务完成");
+		try {
+			let summary = await this.generateSummary(agent.id, messages, date);
+			if (this.config.requireReview) {
+				const reviewed = await this.requestReview({
+					id: randomUUID(),
+					summary,
+					date,
+				});
+				if (reviewed === null) {
+					console.log("[DailySummaryTask] 用户取消了每日总结保存");
+					return;
+				}
+				summary = reviewed.trim();
+				if (!summary) {
+					console.log("[DailySummaryTask] 审核后的总结为空，跳过保存");
+					return;
+				}
+			}
+
+			await this.saveSummary(agent.id, summary, date);
+			console.log("[DailySummaryTask] 每日总结任务完成");
+		} finally {
+			await this.agentManager.stop(agent.id);
+		}
 	}
 
 	private async collectTodayMessages(): Promise<SessionMessage[]> {
@@ -79,28 +90,23 @@ export class DailySummaryTask {
 		return messages.sort((left, right) => left.timestamp - right.timestamp);
 	}
 
-	private async generateSummary(messages: SessionMessage[], date: string): Promise<string> {
-		const agent = await this.agentManager.create({
-			projectId: "builtin-chat",
-			title: `每日总结 ${date}`,
+	private async generateSummary(
+		agentId: string,
+		messages: SessionMessage[],
+		date: string,
+	): Promise<string> {
+		await this.agentManager.sendPrompt({
+			agentId,
+			message: this.buildSummaryPrompt(messages, date),
 		});
+		await this.waitForAgentIdle(agentId);
 
-		try {
-			await this.agentManager.sendPrompt({
-				agentId: agent.id,
-				message: this.buildSummaryPrompt(messages, date),
-			});
-			await this.waitForAgentIdle(agent.id);
-
-			const agentMessages = this.agentManager.getMessages(agent.id);
-			for (let index = agentMessages.length - 1; index >= 0; index -= 1) {
-				const message = agentMessages[index];
-				if (message.role === "assistant" && message.text.trim()) return message.text.trim();
-			}
-			throw new Error("未获取到有效的总结内容");
-		} finally {
-			await this.agentManager.stop(agent.id);
+		const agentMessages = this.agentManager.getMessages(agentId);
+		for (let index = agentMessages.length - 1; index >= 0; index -= 1) {
+			const message = agentMessages[index];
+			if (message.role === "assistant" && message.text.trim()) return message.text.trim();
 		}
+		throw new Error("未获取到有效的总结内容");
 	}
 
 	private buildSummaryPrompt(messages: SessionMessage[], date: string): string {
@@ -111,24 +117,15 @@ export class DailySummaryTask {
 		return `请根据以下 ${date} 的对话记录生成每日总结，覆盖完成的工作、学到的知识、遇到的问题和解决方案。直接输出总结正文，不要调用任何工具。\n\n对话记录：\n${conversations}`;
 	}
 
-	private async saveSummary(summary: string, date: string): Promise<void> {
-		const agent = await this.agentManager.create({
-			projectId: "builtin-chat",
-			title: `保存每日总结 ${date}`,
+	private async saveSummary(agentId: string, summary: string, date: string): Promise<void> {
+		const approval = this.config.requireReview
+			? "用户刚刚在 PiDeck 审核弹窗中确认了这份内容。"
+			: "用户已在 PiDeck 设置中启用无需二次审核的每日总结保存。";
+		await this.agentManager.sendPrompt({
+			agentId,
+			message: `${approval}\n请使用 memory_commit 将以下每日总结保存到 diary/${date}.md，并同步写入本地索引与 Houkai。重要性 0.8，标签 daily-summary、pideck。\n\n${summary}`,
 		});
-
-		try {
-			const approval = this.config.requireReview
-				? "用户刚刚在 PiDeck 审核弹窗中确认了这份内容。"
-				: "用户已在 PiDeck 设置中启用无需二次审核的每日总结保存。";
-			await this.agentManager.sendPrompt({
-				agentId: agent.id,
-				message: `${approval}\n请使用 memory_commit 将以下每日总结保存到 diary/${date}.md，并同步写入本地索引与 Houkai。重要性 0.8，标签 daily-summary、pideck。\n\n${summary}`,
-			});
-			await this.waitForAgentIdle(agent.id);
-		} finally {
-			await this.agentManager.stop(agent.id);
-		}
+		await this.waitForAgentIdle(agentId);
 	}
 
 	private async waitForAgentIdle(agentId: string): Promise<void> {
