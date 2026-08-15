@@ -63,8 +63,13 @@ export class WebServiceManager {
 	/** 按 IP 的请求量与鉴权失败计数，窗口过期后自动重置。 */
 	private readonly requestCounts = new Map<string, RateWindow>();
 	private readonly authFailureCounts = new Map<string, RateWindow>();
-	/** SSE 连接管理：按连接 ID 存储响应对象，用于广播事件和断连时清理。 */
-	private readonly sseConnections = new Map<string, ServerResponse>();
+	/** SSE 连接状态：响应对象 + 背压管理 + 待发送事件队列 */
+	private readonly sseConnections = new Map<string, {
+		response: ServerResponse;
+		blocked: boolean;
+		pending: Map<string, string>; // 事件键 -> 最新 payload
+		heartbeat?: ReturnType<typeof setInterval>;
+	}>();
 	private sseIdCounter = 0;
 
 	constructor(private readonly deps: WebServiceDependencies) {}
@@ -283,25 +288,66 @@ export class WebServiceManager {
 					"connection": "keep-alive",
 					"x-accel-buffering": "no",
 				});
-				this.sseConnections.set(connectionId, response);
+				
+				// 创建连接状态
+				const conn = {
+					response,
+					blocked: false,
+					pending: new Map<string, string>(),
+					heartbeat: undefined as ReturnType<typeof setInterval> | undefined,
+				};
+				this.sseConnections.set(connectionId, conn);
+				
 				// 立即发送初始状态快照
-				this.sendSseEvent(response, "state", this.getState());
+				this.sendSseEvent(connectionId, "state", "state", this.getState());
+				
+				// 为每个已打开的 Agent 发送当前消息快照，补齐断线期间的内容
+				const agents = this.deps.listAgents();
+				for (const agent of agents) {
+					const messages = this.deps.getMessages(agent.id);
+					if (messages.length > 0) {
+						this.sendSseEvent(connectionId, `messages:${agent.id}`, "messages", { agentId: agent.id, messages });
+					}
+				}
+				
+				// 背压恢复：drain 事件触发时发送待发送的最新快照
+				const onDrain = () => {
+					if (!this.sseConnections.has(connectionId)) return;
+					conn.blocked = false;
+					const toSend = Array.from(conn.pending.values());
+					conn.pending.clear();
+					for (const chunk of toSend) {
+						try {
+							const canWrite = response.write(chunk);
+							if (!canWrite) {
+								// 再次阻塞，停止发送，等待下一次 drain
+								conn.blocked = true;
+								break;
+							}
+						} catch {
+							this.cleanupSseConnection(connectionId);
+							break;
+						}
+					}
+				};
+				response.on("drain", onDrain);
+				
 				// 心跳：每 25 秒发送注释保持连接活跃
-				const heartbeat = setInterval(() => {
+				conn.heartbeat = setInterval(() => {
 					if (!this.sseConnections.has(connectionId)) {
-						clearInterval(heartbeat);
+						if (conn.heartbeat) clearInterval(conn.heartbeat);
 						return;
 					}
 					try {
 						response.write(": heartbeat\n\n");
 					} catch {
-						clearInterval(heartbeat);
-						this.sseConnections.delete(connectionId);
+						this.cleanupSseConnection(connectionId);
 					}
 				}, 25000);
+				
+				// 连接关闭清理
 				request.on("close", () => {
-					clearInterval(heartbeat);
-					this.sseConnections.delete(connectionId);
+					this.cleanupSseConnection(connectionId);
 				});
 				return;
 			}
@@ -766,44 +812,83 @@ export class WebServiceManager {
 
 	// ── SSE 事件推送 ─────────────────────────────────────────────────
 
-	/** 向单个 SSE 连接发送事件 */
-	private sendSseEvent(response: ServerResponse, event: string, data: unknown) {
+	/** 向单个 SSE 连接发送事件，处理背压 */
+	private sendSseEvent(connectionId: string, eventKey: string, event: string, data: unknown) {
+		const conn = this.sseConnections.get(connectionId);
+		if (!conn) return;
+		
+		const payload = JSON.stringify(data);
+		const chunk = `event: ${event}\ndata: ${payload}\n\n`;
+		
+		if (conn.blocked) {
+			// 背压期间：只保留最新快照，覆盖旧的待发送事件
+			conn.pending.set(eventKey, chunk);
+			return;
+		}
+		
 		try {
-			const payload = JSON.stringify(data);
-			response.write(`event: ${event}\ndata: ${payload}\n\n`);
+			const canWrite = conn.response.write(chunk);
+			if (!canWrite) {
+				// 缓冲区满，标记阻塞
+				conn.blocked = true;
+			}
 		} catch {
-			// 连接已关闭或写入失败，静默忽略
+			// 连接已关闭，清理
+			this.cleanupSseConnection(connectionId);
 		}
 	}
 
 	/** 向所有活跃 SSE 连接广播事件 */
-	private broadcastSseEvent(event: string, data: unknown) {
-		const payload = JSON.stringify(data);
+	private broadcastSseEvent(eventKey: string, event: string, data: unknown) {
 		const deadConnections: string[] = [];
-		for (const [id, response] of this.sseConnections) {
+		for (const [id, conn] of this.sseConnections) {
+			const payload = JSON.stringify(data);
+			const chunk = `event: ${event}\ndata: ${payload}\n\n`;
+			
+			if (conn.blocked) {
+				// 背压期间：只保留最新快照
+				conn.pending.set(eventKey, chunk);
+				continue;
+			}
+			
 			try {
-				response.write(`event: ${event}\ndata: ${payload}\n\n`);
+				const canWrite = conn.response.write(chunk);
+				if (!canWrite) {
+					conn.blocked = true;
+				}
 			} catch {
 				deadConnections.push(id);
 			}
 		}
 		for (const id of deadConnections) {
-			this.sseConnections.delete(id);
+			this.cleanupSseConnection(id);
 		}
+	}
+
+	/** 清理 SSE 连接资源 */
+	private cleanupSseConnection(connectionId: string) {
+		const conn = this.sseConnections.get(connectionId);
+		if (conn) {
+			if (conn.heartbeat) clearInterval(conn.heartbeat);
+			if (conn.response && typeof conn.response.removeAllListeners === 'function') {
+				conn.response.removeAllListeners('drain');
+			}
+		}
+		this.sseConnections.delete(connectionId);
 	}
 
 	/** 广播状态变化（项目、Agent、UI 请求） */
 	broadcastStateChange() {
-		this.broadcastSseEvent("state", this.getState());
+		this.broadcastSseEvent("state", "state", this.getState());
 	}
 
 	/** 广播单个 Agent 的消息更新 */
 	broadcastMessagesUpdate(agentId: string, messages: ChatMessage[]) {
-		this.broadcastSseEvent("messages", { agentId, messages });
+		this.broadcastSseEvent(`messages:${agentId}`, "messages", { agentId, messages });
 	}
 
 	/** 广播 UI 请求变化 */
 	broadcastUiRequestChange() {
-		this.broadcastSseEvent("ui-request", { requests: this.deps.getPendingUIRequests() });
+		this.broadcastSseEvent("ui-request", "ui-request", { requests: this.deps.getPendingUIRequests() });
 	}
 }

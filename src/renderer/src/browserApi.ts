@@ -25,6 +25,7 @@ const base = createPreviewApi();
 let state: WebState = { projects: [], agents: [] };
 let connected = false;
 let sseAbortController: AbortController | null = null;
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const stateListeners = new Set<(tabs: AgentTab[]) => void>();
 const messageListeners = new Set<(payload: { agentId: string; messages: ChatMessage[] }) => void>();
 const uiRequestListeners = new Set<(request: UiWebRequest) => void>();
@@ -186,6 +187,7 @@ async function connectSSE() {
 	}
 	console.log("[SSE] Connecting to /api/events... authToken present:", !!authToken);
 	sseAbortController = new AbortController();
+	let shouldReconnect = false;
 	try {
 		const response = await fetch("/api/events", {
 			headers: { authorization: `Bearer ${authToken}` },
@@ -203,14 +205,20 @@ async function connectSSE() {
 		const reader = response.body.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
+		// 跨分片状态保留：event 和 data 在整个读取循环生命周期中持续累积
+		let event = "";
+		let data = "";
 		while (true) {
 			const { done, value } = await reader.read();
-			if (done) break;
+			if (done) {
+				// 正常 EOF：服务器或中间网络关闭了响应流，需要重连
+				console.log("[SSE] Connection closed by server (EOF)");
+				shouldReconnect = true;
+				break;
+			}
 			buffer += decoder.decode(value, { stream: true });
 			const lines = buffer.split("\n");
 			buffer = lines.pop() ?? "";
-			let event = "";
-			let data = "";
 			for (const line of lines) {
 				if (line.startsWith("event:")) {
 					event = line.slice(6).trim();
@@ -226,21 +234,23 @@ async function connectSSE() {
 		}
 	} catch (error: unknown) {
 		if ((error as { name?: string }).name === "AbortError") {
-			console.log("[SSE] Connection aborted");
+			console.log("[SSE] Connection aborted by user");
 			return;
 		}
 		console.error("[SSE] Connection error:", error);
-		connected = false;
-		const errorMsg = error instanceof Error ? error.message : String(error);
-		for (const listener of connectionListeners) listener(false, errorMsg);
-		// 断线后 3 秒重连
-		console.log("[SSE] Reconnecting in 3 seconds...");
-		setTimeout(() => {
-			sseAbortController = null;
-			void connectSSE();
-		}, 3000);
+		shouldReconnect = true;
 	} finally {
 		sseAbortController = null;
+		if (shouldReconnect) {
+			connected = false;
+			for (const listener of connectionListeners) listener(false);
+			// 断线后 3 秒重连
+			console.log("[SSE] Reconnecting in 3 seconds...");
+			sseReconnectTimer = setTimeout(() => {
+				sseReconnectTimer = null;
+				void connectSSE();
+			}, 3000);
+		}
 	}
 }
 
@@ -296,21 +306,60 @@ function handleSSEEvent(event: string, data: string) {
 	}
 }
 
+// 页面可见性和网络状态监听：用于后台恢复和网络恢复时重连
+let visibilityListenerAttached = false;
+
+function attachVisibilityAndOnlineListeners() {
+	if (visibilityListenerAttached) return;
+	visibilityListenerAttached = true;
+	
+	// 页面从后台回到前台时重连
+	if (typeof document !== "undefined") {
+		document.addEventListener("visibilitychange", () => {
+			if (document.visibilityState === "visible") {
+				const hasSubscriptions = stateListeners.size > 0 || messageListeners.size > 0 || uiRequestListeners.size > 0 || connectionListeners.size > 0;
+				if (hasSubscriptions && !sseAbortController && !connected) {
+					console.log("[SSE] Page became visible, reconnecting...");
+					void connectSSE();
+				}
+			}
+		});
+	}
+	
+	// 网络恢复时重连
+	if (typeof window !== "undefined") {
+		window.addEventListener("online", () => {
+			const hasSubscriptions = stateListeners.size > 0 || messageListeners.size > 0 || uiRequestListeners.size > 0 || connectionListeners.size > 0;
+			if (hasSubscriptions && !sseAbortController && !connected) {
+				console.log("[SSE] Network came online, reconnecting...");
+				void connectSSE();
+			}
+		});
+	}
+}
+
 function subscribe<T>(set: Set<(payload: T) => void>, callback: (payload: T) => void) {
 	const wasEmpty = stateListeners.size === 0 && messageListeners.size === 0 && uiRequestListeners.size === 0 && connectionListeners.size === 0;
 	set.add(callback);
 	console.log(`[SSE] Subscription added. Listener counts - state: ${stateListeners.size}, messages: ${messageListeners.size}, uiRequest: ${uiRequestListeners.size}, connection: ${connectionListeners.size}`);
-	// 首次订阅时启动 SSE 连接
+	// 首次订阅时启动 SSE 连接并附加可见性/网络监听
 	if (wasEmpty) {
 		console.log("[SSE] First subscription, starting SSE connection...");
+		attachVisibilityAndOnlineListeners();
 		void connectSSE();
 	}
 	return () => {
 		set.delete(callback);
-		// 无订阅时断开 SSE
+		// 无订阅时断开 SSE 并清理重连定时器
 		if (stateListeners.size === 0 && messageListeners.size === 0 && uiRequestListeners.size === 0 && connectionListeners.size === 0) {
+			console.log("[SSE] All subscriptions removed, cleaning up connection and timers");
 			sseAbortController?.abort();
 			sseAbortController = null;
+			if (sseReconnectTimer) {
+				clearTimeout(sseReconnectTimer);
+				sseReconnectTimer = null;
+			}
+			connected = false;
 		}
 	};
 }
