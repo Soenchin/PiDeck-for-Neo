@@ -1426,6 +1426,8 @@ export function App() {
     const providerId = activeRuntimeState?.provider;
     const normalizedProviderId = providerId?.toLowerCase();
     const supportsUsage = normalizedProviderId?.startsWith("sx-") ||
+      normalizedProviderId === "ddd-dpsk" ||
+      normalizedProviderId === "ddd-gpt" ||
       normalizedProviderId?.startsWith("deepseek-") ||
       normalizedProviderId === "deepseek";
     if (!providerId || !supportsUsage) {
@@ -1467,6 +1469,8 @@ export function App() {
   useEffect(() => {
     const normalizedProviderId = activeRuntimeState?.provider?.toLowerCase();
     const supportsUsage = normalizedProviderId?.startsWith("sx-") ||
+      normalizedProviderId === "ddd-dpsk" ||
+      normalizedProviderId === "ddd-gpt" ||
       normalizedProviderId?.startsWith("deepseek-") ||
       normalizedProviderId === "deepseek";
     if (!supportsUsage) {

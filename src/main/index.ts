@@ -96,6 +96,7 @@ import { GitService } from "./git/GitService";
 import { WorktreeService } from "./git/WorktreeService";
 import { ConfigManager } from "./config/ConfigManager";
 import { SxUsageService } from "./usage/SxUsageService";
+import { DddUsageService } from "./usage/DddUsageService";
 import { DeepSeekUsageService } from "./usage/DeepSeekUsageService";
 import { TerminalSessionManager } from "./terminal/TerminalSessionManager";
 import { TelemetryService } from "./telemetry/TelemetryService";
@@ -155,6 +156,7 @@ let piLocator: PiLocator;
 let agentManager: AgentManager;
 let configManager: ConfigManager;
 let sxUsageService: SxUsageService;
+let dddUsageService: DddUsageService;
 let deepSeekUsageService: DeepSeekUsageService;
 let promptManager: PromptManager;
 let yaoPromptManager: YaoPromptManager;
@@ -2729,6 +2731,11 @@ function registerIpc() {
 		agentManager.getRuntimeState(agentId),
 	);
 	ipcMain.handle(ipcChannels.providerUsage, async (_event, providerId?: string) => {
+		// DDD 的模型名可能含 DeepSeek，但账户/用量归属由 dddai.dev 决定；
+		// 先按网关归属路由，避免落入官方 DeepSeek 的本地估算服务。
+		if (await dddUsageService.supportsProvider(providerId)) {
+			return dddUsageService.fetchForProvider(providerId);
+		}
 		if (await deepSeekUsageService.supportsProvider(providerId)) {
 			return deepSeekUsageService.fetchForProvider(providerId);
 		}
@@ -2988,6 +2995,7 @@ app.whenReady().then(async () => {
 	piLocator = new PiLocator();
 	configManager = new ConfigManager();
 	sxUsageService = new SxUsageService(configManager);
+	dddUsageService = new DddUsageService(configManager);
 	deepSeekUsageService = new DeepSeekUsageService(configManager);
 	promptManager = new PromptManager();
 	yaoPromptManager = new YaoPromptManager();

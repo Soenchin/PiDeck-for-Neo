@@ -1468,9 +1468,16 @@ export class AgentManager {
 					const entry = JSON.parse(line) as Record<string, any>;
 					if (entry?.message?.role !== "assistant" || !entry.message?.usage) continue;
 					const usage = entry.message.usage;
-					input += Number(usage.input) || 0;
-					cacheRead += Number(usage.cacheRead) || 0;
-					cacheWrite += Number(usage.cacheWrite) || 0;
+					input += this.pickNumber(
+						usage.input,
+						usage.inputTokens,
+						usage.prompt,
+						usage.promptTokens,
+						usage.input_tokens,
+						usage.prompt_tokens,
+					) ?? 0;
+					cacheRead += this.cacheReadFromUsage(usage) ?? 0;
+					cacheWrite += this.cacheWriteFromUsage(usage) ?? 0;
 				} catch {
 					// 单行解析失败忽略，其余历史仍可参与累计。
 				}
@@ -1502,8 +1509,12 @@ export class AgentManager {
 			tokens?.inputTokens,
 			tokens?.prompt,
 			tokens?.promptTokens,
+			tokens?.input_tokens,
+			tokens?.prompt_tokens,
 			stats?.inputTokens,
 			stats?.usage?.input,
+			stats?.usage?.input_tokens,
+			stats?.usage?.prompt_tokens,
 		);
 		const outputTokens = this.pickNumber(
 			tokens?.output,
@@ -1516,14 +1527,26 @@ export class AgentManager {
 		const cacheRead = this.pickNumber(
 			tokens?.cacheRead,
 			tokens?.cache?.read,
+			tokens?.inputTokensDetails?.cachedTokens,
+			tokens?.input_tokens_details?.cached_tokens,
+			tokens?.promptTokensDetails?.cachedTokens,
+			tokens?.prompt_tokens_details?.cached_tokens,
 			stats?.cacheRead,
 			stats?.usage?.cacheRead,
+			stats?.usage?.inputTokensDetails?.cachedTokens,
+			stats?.usage?.input_tokens_details?.cached_tokens,
+			stats?.usage?.promptTokensDetails?.cachedTokens,
+			stats?.usage?.prompt_tokens_details?.cached_tokens,
 		);
 		const cacheWrite = this.pickNumber(
 			tokens?.cacheWrite,
 			tokens?.cache?.write,
+			tokens?.cacheCreationInputTokens,
+			tokens?.cache_creation_input_tokens,
 			stats?.cacheWrite,
 			stats?.usage?.cacheWrite,
+			stats?.usage?.cacheCreationInputTokens,
+			stats?.usage?.cache_creation_input_tokens,
 		);
 		// get_session_stats.tokens 是 pi 对整个 session 的累计值；只有旧版/异常 RPC
 		// 缺少累计 token 时，才回读 JSONL 做同口径的全量汇总。
@@ -1615,6 +1638,31 @@ export class AgentManager {
 	}
 
 	/**
+	 * OpenAI-compatible gateways may preserve cached tokens only in the raw
+	 * prompt/input token detail object. Normalizing that shape here keeps cache
+	 * diagnostics provider-neutral instead of teaching the UI about DDD.
+	 */
+	private cacheReadFromUsage(usage: any) {
+		return this.pickNumber(
+			usage.cacheRead,
+			usage.cache?.read,
+			usage.inputTokensDetails?.cachedTokens,
+			usage.input_tokens_details?.cached_tokens,
+			usage.promptTokensDetails?.cachedTokens,
+			usage.prompt_tokens_details?.cached_tokens,
+		);
+	}
+
+	private cacheWriteFromUsage(usage: any) {
+		return this.pickNumber(
+			usage.cacheWrite,
+			usage.cache?.write,
+			usage.cacheCreationInputTokens,
+			usage.cache_creation_input_tokens,
+		);
+	}
+
+	/**
 	 * 记录本轮 assistant message 的 usage，用于逐轮缓存诊断。
 	 * 仅在 message_end 事件中调用，确保 usage 完整且不重复记录流式片段。
 	 */
@@ -1622,9 +1670,16 @@ export class AgentManager {
 		const usage = message?.usage;
 		if (!usage || typeof usage !== "object") return;
 
-		const input = this.pickNumber(usage.input, usage.inputTokens, usage.prompt, usage.promptTokens) ?? 0;
-		const cacheRead = this.pickNumber(usage.cacheRead, usage.cache?.read) ?? 0;
-		const cacheWrite = this.pickNumber(usage.cacheWrite, usage.cache?.write) ?? 0;
+		const input = this.pickNumber(
+			usage.input,
+			usage.inputTokens,
+			usage.prompt,
+			usage.promptTokens,
+			usage.input_tokens,
+			usage.prompt_tokens,
+		) ?? 0;
+		const cacheRead = this.cacheReadFromUsage(usage) ?? 0;
+		const cacheWrite = this.cacheWriteFromUsage(usage) ?? 0;
 		const promptTokens = input + cacheRead + cacheWrite;
 
 		if (promptTokens === 0) return;
