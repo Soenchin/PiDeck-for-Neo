@@ -401,7 +401,7 @@ export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
 			git: false,
 		},
 		silentReturn: true,
-		logPath: "autonomous-logs",
+		logPath: "X:\\CC\\surfing~",
 	},
 };
 

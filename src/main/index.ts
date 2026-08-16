@@ -144,6 +144,7 @@ let tray: Tray | null = null;
 let internalLinkWindow: BrowserWindow | null = null;
 /** 标记是否由用户主动退出（托盘菜单「退出」），区别于窗口关闭隐藏到托盘 */
 let isQuitting = false;
+let shutdownCleanupPromise: Promise<void> | null = null;
 let projectStore: ProjectStore;
 let fileSystemService: FileSystemService;
 let sessionScanner: SessionScanner;
@@ -2166,7 +2167,7 @@ function registerIpc() {
 			}
 			// 自动化任务配置变更时重新加载调度器
 			if ("automation" in patch) {
-				automationScheduler?.reload(settings);
+				await automationScheduler?.reload(settings);
 				console.log("[Main] 自动化调度器已重新加载");
 			}
 			// 返回最新快照而不是旧对象：Web 令牌可能在上面被懒生成，
@@ -3096,7 +3097,7 @@ app.whenReady().then(async () => {
 		agentManager,
 		requestDailySummaryReview,
 	);
-	automationScheduler.start(settingsStore.get());
+	await automationScheduler.start(settingsStore.get());
 	console.log("[Main] 自动化调度器已启动");
 
 	// 根据已加载的 WSL 设置配置会话扫描器，使其能同时扫描 WSL 中的 pi 会话目录
@@ -3253,18 +3254,30 @@ async function removeStalePiDeckExtension(extensionName: string): Promise<void> 
 	console.log(`[PiDeck] Removed stale extension: ${targetPath}`);
 }
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+	if (shutdownCleanupPromise) return;
+	// Electron does not await event handlers. Keep quit cancellable until the owned
+	// autonomous task has closed its browser session and Pi runtime.
+	event.preventDefault();
 	isQuitting = true;
-	automationScheduler?.stop();
-	for (const resolve of pendingDailySummaryReviews.values()) resolve(null);
-	pendingDailySummaryReviews.clear();
-	tray?.destroy();
-	tray = null;
-	void webServiceManager?.stop();
-	terminalManager?.closeAll();
-	agentManager?.stopAll();
-	petSystem?.stop();
-	petSystem = null;
+	shutdownCleanupPromise = (async () => {
+		await automationScheduler?.stop("shutdown");
+		for (const resolve of pendingDailySummaryReviews.values()) resolve(null);
+		pendingDailySummaryReviews.clear();
+		tray?.destroy();
+		tray = null;
+		await webServiceManager?.stop();
+		terminalManager?.closeAll();
+		agentManager?.stopAll();
+		petSystem?.stop();
+		petSystem = null;
+	})()
+		.catch((error) => {
+			console.error("[Main] 退出清理失败:", error);
+		})
+		.finally(() => {
+			app.exit(0);
+		});
 });
 
 app.on("window-all-closed", () => {

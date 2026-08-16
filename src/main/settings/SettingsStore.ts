@@ -114,6 +114,13 @@ export class SettingsStore {
           autonomousMode: {
             ...DEFAULT_AUTOMATION_SETTINGS.autonomousMode,
             ...(parsed.automation?.autonomousMode ?? {}),
+            // Older builds stored a relative logs directory. Autonomous activity is
+            // intentionally confined to its dedicated root, so migrate that legacy value.
+            logPath:
+              parsed.automation?.autonomousMode?.logPath === "autonomous-logs"
+                ? DEFAULT_AUTOMATION_SETTINGS.autonomousMode.logPath
+                : (parsed.automation?.autonomousMode?.logPath ??
+                    DEFAULT_AUTOMATION_SETTINGS.autonomousMode.logPath),
             activities: {
               ...DEFAULT_AUTOMATION_SETTINGS.autonomousMode.activities,
               ...(parsed.automation?.autonomousMode?.activities ?? {}),

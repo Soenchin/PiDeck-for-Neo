@@ -3,6 +3,7 @@ import { TextField } from "../ui/TextField";
 import {
 	DEFAULT_AUTOMATION_SETTINGS,
 	type AppSettings,
+	type AutonomousModeSettings,
 	type DailySummarySettings,
 } from "../../../../shared/types";
 import { SettingsSection, SettingSwitch } from "./SettingsControls";
@@ -30,6 +31,15 @@ export function AutomationTab(props: {
 			automation: {
 				...automation,
 				dailySummary: { ...dailySummary, ...patch },
+			},
+		});
+	};
+
+	const updateAutonomousMode = (patch: Partial<AutonomousModeSettings>) => {
+		props.onChange({
+			automation: {
+				...automation,
+				autonomousMode: { ...autonomousMode, ...patch },
 			},
 		});
 	};
@@ -82,14 +92,13 @@ export function AutomationTab(props: {
 
 			<SettingsSection
 				title={t("settings.automation.autonomous.title")}
-				description={t("settings.automation.autonomous.developmentDesc")}
+				description={t("settings.automation.autonomous.desc")}
 			>
 				<SettingSwitch
 					title={t("settings.automation.autonomous.enable")}
 					description={t("settings.automation.autonomous.enableDesc")}
 					checked={autonomousMode.enabled}
-					disabled
-					onChange={() => undefined}
+					onChange={(checked) => updateAutonomousMode({ enabled: checked })}
 				/>
 				<TextField
 					className="setting-field"
@@ -97,21 +106,33 @@ export function AutomationTab(props: {
 					type="number"
 					min={5}
 					value={String(autonomousMode.idleThresholdMinutes)}
-					disabled
+					disabled={!autonomousMode.enabled}
 					description={t("settings.automation.autonomous.idleThresholdDesc")}
-					onChange={() => undefined}
+					onChange={(value) =>
+						updateAutonomousMode({
+							idleThresholdMinutes: Math.max(5, Number.parseInt(value, 10) || 5),
+						})
+					}
 				/>
 				<SettingSwitch
 					title={t("settings.automation.autonomous.activitySearch")}
 					checked={autonomousMode.activities.search}
-					disabled
-					onChange={() => undefined}
+					disabled={!autonomousMode.enabled}
+					onChange={(search) =>
+						updateAutonomousMode({
+							activities: { ...autonomousMode.activities, search },
+						})
+					}
 				/>
 				<SettingSwitch
 					title={t("settings.automation.autonomous.activityGames")}
 					checked={autonomousMode.activities.games}
-					disabled
-					onChange={() => undefined}
+					disabled={!autonomousMode.enabled}
+					onChange={(games) =>
+						updateAutonomousMode({
+							activities: { ...autonomousMode.activities, games },
+						})
+					}
 				/>
 			</SettingsSection>
 
@@ -132,7 +153,15 @@ export function AutomationTab(props: {
 				<div className="setting-row">
 					<div>
 						<strong>{t("settings.automation.status.autonomousStatus")}</strong>
-						<small>{t("settings.automation.status.development")}</small>
+						<small>
+							{!autonomousMode.enabled
+								? t("settings.automation.status.disabled")
+								: !autonomousMode.activities.search && !autonomousMode.activities.games
+									? t("settings.automation.status.noActivity")
+									: t("settings.automation.status.enabledIdle", {
+											minutes: autonomousMode.idleThresholdMinutes,
+										})}
+						</small>
 					</div>
 				</div>
 			</SettingsSection>
