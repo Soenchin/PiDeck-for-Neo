@@ -1443,6 +1443,7 @@ export function App() {
     const supportsUsage = normalizedProviderId?.startsWith("sx-") ||
       normalizedProviderId === "ddd-dpsk" ||
       normalizedProviderId === "ddd-gpt" ||
+      normalizedProviderId?.startsWith("ddd-sub-") ||
       normalizedProviderId?.startsWith("deepseek-") ||
       normalizedProviderId === "deepseek";
     if (!providerId || !supportsUsage) {
@@ -1486,6 +1487,7 @@ export function App() {
     const supportsUsage = normalizedProviderId?.startsWith("sx-") ||
       normalizedProviderId === "ddd-dpsk" ||
       normalizedProviderId === "ddd-gpt" ||
+      normalizedProviderId?.startsWith("ddd-sub-") ||
       normalizedProviderId?.startsWith("deepseek-") ||
       normalizedProviderId === "deepseek";
     if (!supportsUsage) {

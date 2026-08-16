@@ -278,6 +278,8 @@ export type ProviderUsageSnapshot = {
 	/** 当前账户剩余余额，优先取 balance，缺失时由主进程回退 remaining。 */
 	balance: number | null;
 	todayActualCost: number | null;
+	/** ddd-sub-* 专用：API 返回的订阅日限额剩余，不与实际扣费混用。 */
+	todaySubscriptionRemaining?: number | null;
 	totalActualCost: number | null;
 	todayCost: number | null;
 	totalCost: number | null;
@@ -288,7 +290,7 @@ export type ProviderUsageSnapshot = {
 	totalRequests: number | null;
 	totalTokens: number | null;
 	fetchedAt: string;
-	source: "actual_cost" | "cost" | "unavailable";
+	source: "actual_cost" | "cost" | "subscription" | "unavailable";
 	isValid: boolean | null;
 	/** 请求失败时保留上次成功数据，并通过此字段提示 renderer。 */
 	error?: string;

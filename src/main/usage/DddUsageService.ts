@@ -3,14 +3,14 @@ import type { ConfigManager, PiAuthFile, PiProviderConfig } from "../config/Conf
 import type { ProviderUsageSnapshot } from "../../shared/types";
 
 const DDD_HOSTNAME = "dddai.dev";
+const DDD_SUB_PROVIDER_PREFIX = "ddd-sub-";
 const REQUEST_TIMEOUT_MS = 15_000;
 
 /**
  * 读取嘀嘀嘀 AI 账户的余额和累计扣费。
  *
- * DDD 的 /v1/usage 返回格式不同于 SX：余额位于 balance/remaining，消费汇总
- * 位于 usage。它不提供稳定的逐模型价表，因此这里仅使用服务端已经结算的金额，
- * 不根据公开上游价格反推，避免把账号分组、倍率或折扣算错。
+ * 普通 DDD Provider 继续读取 /v1/usage。订阅 Provider 的日限额仅由
+ * /v1/user/balance 返回，因此 ddd-sub-* 单独走该端点，并把订阅剩余和钱包余额分开。
  */
 export class DddUsageService {
 	private readonly snapshots = new Map<string, ProviderUsageSnapshot>();
@@ -41,7 +41,7 @@ export class DddUsageService {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 		try {
-			const response = await net.fetch(this.usageUrl(providerConfig.baseUrl), {
+			const response = await net.fetch(this.endpointUrl(provider, providerConfig.baseUrl), {
 				method: "GET",
 				headers: {
 					Authorization: `Bearer ${apiKey}`,
@@ -72,6 +72,10 @@ export class DddUsageService {
 	}
 
 	private normalizeSnapshot(providerId: string, body: Record<string, unknown> | undefined): ProviderUsageSnapshot {
+		if (this.isDddSubscriptionProvider(providerId)) {
+			return this.normalizeSubscriptionSnapshot(providerId, body);
+		}
+
 		const balance = this.asRecord(body?.balance);
 		const usage = this.asRecord(body?.usage);
 		const subscription = this.asRecord(body?.subscription);
@@ -106,12 +110,67 @@ export class DddUsageService {
 		};
 	}
 
+	private normalizeSubscriptionSnapshot(providerId: string, body: Record<string, unknown> | undefined): ProviderUsageSnapshot {
+		const entries = Array.isArray(body?.data)
+			? body.data.map((entry) => this.asRecord(entry)).filter((entry): entry is Record<string, unknown> => entry != null)
+			: [];
+		const subscription = entries.find((entry) =>
+			this.stringValue(entry.planName) === "订阅" && this.stringValue(entry.extra) === "日限额",
+		);
+		const wallet = entries.find((entry) => this.stringValue(entry.planName) === "钱包余额");
+		const subscriptionTodayRemaining = this.number(subscription?.remaining)
+			?? this.number(body?.remaining)
+			?? this.number(body?.balance);
+		const unit = this.stringValue(subscription?.unit)
+			?? this.stringValue(wallet?.unit)
+			?? this.stringValue(body?.unit)
+			?? "USD";
+		const isActive = typeof body?.is_active === "boolean"
+			? body.is_active
+			: typeof body?.isValid === "boolean"
+				? body.isValid
+				: null;
+
+		return {
+			providerId,
+			unit: unit.toUpperCase(),
+			balance: this.number(wallet?.remaining),
+			todayActualCost: null,
+			todaySubscriptionRemaining: subscriptionTodayRemaining,
+			totalActualCost: null,
+			todayCost: null,
+			totalCost: null,
+			todayRequests: null,
+			todayInputTokens: null,
+			todayOutputTokens: null,
+			todayTokens: null,
+			totalRequests: null,
+			totalTokens: null,
+			fetchedAt: new Date().toISOString(),
+			source: subscriptionTodayRemaining != null ? "subscription" : "unavailable",
+			isValid: isActive,
+		};
+	}
+
+	private endpointUrl(providerId: string, baseUrl?: string) {
+		return this.isDddSubscriptionProvider(providerId)
+			? this.balanceUrl(baseUrl)
+			: this.usageUrl(baseUrl);
+	}
+
 	private usageUrl(baseUrl?: string) {
+		return this.dddUrl(baseUrl, "/v1/usage");
+	}
+
+	private balanceUrl(baseUrl?: string) {
+		return this.dddUrl(baseUrl, "/v1/user/balance");
+	}
+
+	private dddUrl(baseUrl: string | undefined, path: string) {
 		try {
-			const url = new URL(baseUrl ?? `https://${DDD_HOSTNAME}/v1`);
-			return `${url.origin}/v1/usage`;
+			return `${new URL(baseUrl ?? `https://${DDD_HOSTNAME}/v1`).origin}${path}`;
 		} catch {
-			return `https://${DDD_HOSTNAME}/v1/usage`;
+			return `https://${DDD_HOSTNAME}${path}`;
 		}
 	}
 
@@ -165,10 +224,15 @@ export class DddUsageService {
 	private isDddProvider(provider?: PiProviderConfig) {
 		if (!provider?.baseUrl) return false;
 		try {
-			return new URL(provider.baseUrl).hostname.toLowerCase() === DDD_HOSTNAME;
+			const hostname = new URL(provider.baseUrl).hostname.toLowerCase();
+			return hostname === DDD_HOSTNAME || hostname.endsWith(`.${DDD_HOSTNAME}`);
 		} catch {
 			return false;
 		}
+	}
+
+	private isDddSubscriptionProvider(providerId: string) {
+		return providerId.trim().toLowerCase().startsWith(DDD_SUB_PROVIDER_PREFIX);
 	}
 
 	private asRecord(value: unknown): Record<string, unknown> | undefined {

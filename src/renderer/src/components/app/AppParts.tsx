@@ -705,6 +705,8 @@ export function SessionStatus(props: {
 	const formatCostMoney = (value?: number | null) => formatUsageMoney(value, costUnit);
 	const todayUsage = usage?.todayActualCost ?? usage?.todayCost;
 	const totalUsage = usage?.totalActualCost ?? usage?.totalCost;
+	const subscriptionTodayRemaining = usage?.todaySubscriptionRemaining;
+	const hasSubscriptionTodayRemaining = subscriptionTodayRemaining != null;
 	const balance = usage?.balance;
 	const balanceProgress = balance == null ? null : Math.max(0, Math.min(100, (balance / ACCOUNT_BALANCE_CAP) * 100));
 	const balanceState: StatusRingState = balance != null && balance > ACCOUNT_BALANCE_CAP
@@ -715,22 +717,33 @@ export function SessionStatus(props: {
 				? "warning"
 				: "normal";
 	const dailyOverBudget = todayUsage != null && todayUsage > DAILY_BUDGET_CAP;
-	const dailyProgress = todayUsage == null
-		? null
+	const dailyProgress = hasSubscriptionTodayRemaining
+		? subscriptionTodayRemaining > 0 ? 100 : 0
+		: todayUsage == null
+			? null
+			: dailyOverBudget
+				? 100
+				: Math.max(0, ((DAILY_BUDGET_CAP - todayUsage) / DAILY_BUDGET_CAP) * 100);
+	const dailyState: StatusRingState = hasSubscriptionTodayRemaining
+		? subscriptionTodayRemaining <= 0 ? "danger" : "normal"
 		: dailyOverBudget
-			? 100
-			: Math.max(0, ((DAILY_BUDGET_CAP - todayUsage) / DAILY_BUDGET_CAP) * 100);
-	const dailyState: StatusRingState = dailyOverBudget
-		? "danger"
-		: todayUsage != null && todayUsage >= DAILY_BUDGET_CAP * 0.8
-			? "warning"
-			: "normal";
+			? "danger"
+			: todayUsage != null && todayUsage >= DAILY_BUDGET_CAP * 0.8
+				? "warning"
+				: "normal";
 	const dailyRemaining = todayUsage == null ? null : DAILY_BUDGET_CAP - todayUsage;
 	const dailyMeta = dailyRemaining == null
 		? t("app.statusRingTodayBudget", { cap: formatCostMoney(DAILY_BUDGET_CAP) })
 		: dailyRemaining >= 0
 			? t("app.statusRingTodayRemaining", { amount: formatCostMoney(dailyRemaining) })
 			: t("app.statusRingTodayOver", { amount: formatCostMoney(Math.abs(dailyRemaining)) });
+	const dailyRingDisplayValue = hasSubscriptionTodayRemaining
+		? formatBalanceMoney(subscriptionTodayRemaining)
+		: formatCostMoney(todayUsage);
+	const dailyRingLabel = hasSubscriptionTodayRemaining
+		? t("app.statusRingSubscriptionTodayRemaining")
+		: t("app.statusRingToday");
+	const dailyRingMeta = hasSubscriptionTodayRemaining ? undefined : dailyMeta;
 	const cacheRingValue = state.cacheHitPercent;
 	const hasUsageRings = balanceProgress != null || dailyProgress != null || cacheRingValue != null;
 
@@ -771,7 +784,7 @@ export function SessionStatus(props: {
 												{balanceProgress != null ? <StatusUsageRing progress={balanceProgress} displayValue={formatBalanceMoney(balance)} label={t("app.statusRingBalance")} meta={t("app.statusRingBalanceCap", { cap: formatBalanceMoney(ACCOUNT_BALANCE_CAP) })} size="primary" variant="balance" state={balanceState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
 											</div>
 											<div className="session-status-details-ring-slot">
-												{dailyProgress != null ? <StatusUsageRing progress={dailyProgress} displayValue={formatCostMoney(todayUsage)} label={t("app.statusRingToday")} meta={dailyMeta} size="primary" variant="budget" state={dailyState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
+												{dailyProgress != null ? <StatusUsageRing progress={dailyProgress} displayValue={dailyRingDisplayValue} label={dailyRingLabel} meta={dailyRingMeta} size="primary" variant="budget" state={dailyState} /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
 											</div>
 											<div className="session-status-details-ring-slot">
 												{cacheRingValue != null ? <StatusUsageRing progress={cacheRingValue} displayValue={`${cacheRingValue.toFixed(1)}%`} label={t("app.statusRingCache")} meta="100%" size="primary" variant="cache" /> : <span className="session-status-details-ring-empty" aria-hidden="true" />}
@@ -782,7 +795,7 @@ export function SessionStatus(props: {
 												{balanceProgress != null && <StatusUsageRingCaption displayValue={formatBalanceMoney(balance)} label={t("app.statusRingBalance")} meta={t("app.statusRingBalanceCap", { cap: formatBalanceMoney(ACCOUNT_BALANCE_CAP) })} />}
 											</div>
 											<div className="session-status-details-ring-caption-slot">
-												{dailyProgress != null && <StatusUsageRingCaption displayValue={formatCostMoney(todayUsage)} label={t("app.statusRingToday")} meta={dailyMeta} />}
+												{dailyProgress != null && <StatusUsageRingCaption displayValue={dailyRingDisplayValue} label={dailyRingLabel} meta={dailyRingMeta} />}
 											</div>
 											<div className="session-status-details-ring-caption-slot">
 												{cacheRingValue != null && <StatusUsageRingCaption displayValue={`${cacheRingValue.toFixed(1)}%`} label={t("app.statusRingCache")} meta="100%" />}
@@ -807,7 +820,7 @@ export function SessionStatus(props: {
 											{usage.todayTokens != null && <div className="session-status-details-row"><span>{t("app.usageTodayTokens")}</span><strong>{formatCompact(usage.todayTokens)}</strong></div>}
 											{usage.totalTokens != null && <div className="session-status-details-row"><span>{t("app.usageTotalTokens")}</span><strong>{formatCompact(usage.totalTokens)}</strong></div>}
 											{usage.totalRequests != null && <div className="session-status-details-row"><span>{t("app.usageTotalRequests")}</span><strong>{formatCompact(usage.totalRequests)}</strong></div>}
-											<div className="session-status-details-note session-status-details-usage-meta"><span>{usage.source === "actual_cost" ? t("app.usageActual") : usage.source === "cost" ? t("app.usageEstimated") : t("app.usageUnavailable")}</span><span>{t("app.usageUpdatedAt", { time: formatUsageTime(usage.fetchedAt) })}</span></div>
+											<div className="session-status-details-note session-status-details-usage-meta"><span>{usage.source === "actual_cost" ? t("app.usageActual") : usage.source === "cost" ? t("app.usageEstimated") : usage.source === "subscription" ? t("app.usageSubscription") : t("app.usageUnavailable")}</span><span>{t("app.usageUpdatedAt", { time: formatUsageTime(usage.fetchedAt) })}</span></div>
 											{(usage.error || usage.isValid === false) && <div className="session-status-details-note session-status-details-usage-error"><span>{usage.isValid === false ? t("app.usageInvalid") : usage.error}</span></div>}
 										</section>
 									)}
