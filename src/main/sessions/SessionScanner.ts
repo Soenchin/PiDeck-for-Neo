@@ -492,10 +492,30 @@ export class SessionScanner {
         const content = this.extractText(message.content).trim();
         if (!content) continue;
         if (message.role !== "user" && message.role !== "assistant") continue;
-        messages.push({ role: String(message.role), content, timestamp: Number(entry.ts ?? entry.timestamp ?? Date.now()) });
+        const timestamp = this.parseMessageTimestamp(entry, message);
+        if (timestamp === undefined) continue;
+        messages.push({ role: String(message.role), content, timestamp });
       } catch { console.warn(`[SessionScanner] 跳过无法解析的 JSONL 行: ${filePath}`); }
     }
     return messages;
+  }
+
+  /**
+   * Daily summaries filter messages by calendar day. Never substitute Date.now() for a
+   * missing timestamp here, or historical messages can be incorrectly treated as today.
+   */
+  private parseMessageTimestamp(
+    entry: Record<string, unknown>,
+    message: Record<string, unknown>,
+  ): number | undefined {
+    const value = entry.ts ?? entry.timestamp ?? message.timestamp;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value !== "string") return undefined;
+
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 
   private safePathToken(path: string) {
