@@ -17,24 +17,24 @@ function loadCadenceModule() {
 	return module.exports;
 }
 
-test("autonomous activity waits five minutes between prompt starts", () => {
+test("autonomous activity waits one hour between prompt starts", () => {
 	const { MIN_AUTONOMOUS_ROUND_INTERVAL_MS, getAutonomousContinuationDelay } = loadCadenceModule();
 	const startedAt = 1_000_000;
 
-	assert.equal(MIN_AUTONOMOUS_ROUND_INTERVAL_MS, 5 * 60 * 1_000);
-	assert.equal(getAutonomousContinuationDelay(startedAt, startedAt), 5 * 60 * 1_000);
+	assert.equal(MIN_AUTONOMOUS_ROUND_INTERVAL_MS, 60 * 60 * 1_000);
+	assert.equal(getAutonomousContinuationDelay(startedAt, startedAt), 60 * 60 * 1_000);
 	assert.equal(
-		getAutonomousContinuationDelay(startedAt, startedAt + 4 * 60 * 1_000),
+		getAutonomousContinuationDelay(startedAt, startedAt + 59 * 60 * 1_000),
 		60 * 1_000,
 	);
 });
 
-test("autonomous activity retains a small settle delay after a long round", () => {
+test("autonomous activity retains a small settle delay after a one-hour round", () => {
 	const { getAutonomousContinuationDelay } = loadCadenceModule();
 	const startedAt = 1_000_000;
 
-	assert.equal(getAutonomousContinuationDelay(startedAt, startedAt + 5 * 60 * 1_000), 1_000);
-	assert.equal(getAutonomousContinuationDelay(startedAt, startedAt + 6 * 60 * 1_000), 1_000);
+	assert.equal(getAutonomousContinuationDelay(startedAt, startedAt + 60 * 60 * 1_000), 1_000);
+	assert.equal(getAutonomousContinuationDelay(startedAt, startedAt + 61 * 60 * 1_000), 1_000);
 });
 
 test("the duration cap shortens a pending continuation wait", () => {
