@@ -9,11 +9,11 @@ import {
 	buildAutonomousContinuationPrompt,
 	buildAutonomousPrompt,
 } from "./AutonomousPrompt";
+import { getAutonomousContinuationWaitDelay } from "./AutonomousActivityCadence";
 
 const execFileAsync = promisify(execFile);
 const AGENT_IDLE_TIMEOUT_MS = 15 * 60 * 1_000;
 const AGENT_IDLE_POLL_MS = 500;
-const BETWEEN_ROUNDS_DELAY_MS = 1_000;
 const STOP_GRACE_PERIOD_MS = 500;
 const MAX_AUTONOMOUS_ROUNDS = 12;
 const MAX_AUTONOMOUS_DURATION_MS = 90 * 60 * 1_000;
@@ -45,9 +45,12 @@ export class AutonomousActivityTask {
 	private runDirectory: string | undefined;
 	private screenshotsDirectory: string | undefined;
 	private startedAt = 0;
+	private lastRoundStartedAt = 0;
 	private rounds = 0;
 	private stopRequested = false;
 	private stopPromise: Promise<void> | null = null;
+	private continuationDelayTimer: NodeJS.Timeout | null = null;
+	private resolveContinuationDelay: (() => void) | null = null;
 	private startPromise: Promise<void> | null = null;
 	private agentCreation: ReturnType<AgentManager["create"]> | null = null;
 	private removeLocalEventListener: (() => void) | null = null;
@@ -92,6 +95,7 @@ export class AutonomousActivityTask {
 	async stop(reason: AutonomousStopReason): Promise<void> {
 		if (this.stopPromise) return this.stopPromise;
 		this.stopRequested = true;
+		this.cancelContinuationDelay();
 		this.stopPromise = this.stopInternal(reason);
 		return this.stopPromise;
 	}
@@ -115,6 +119,7 @@ export class AutonomousActivityTask {
 			);
 			if (this.stopRequested) return;
 
+			this.lastRoundStartedAt = Date.now();
 			await this.agentManager.sendPrompt({
 				agentId: agent.id,
 				message: "开始自主活动",
@@ -139,8 +144,19 @@ export class AutonomousActivityTask {
 					return;
 				}
 
-				await delay(BETWEEN_ROUNDS_DELAY_MS);
+				await this.waitForContinuationDelay(
+					getAutonomousContinuationWaitDelay(
+						this.lastRoundStartedAt,
+						this.startedAt,
+						MAX_AUTONOMOUS_DURATION_MS,
+					),
+				);
 				if (this.stopRequested) return;
+				if (Date.now() - this.startedAt >= MAX_AUTONOMOUS_DURATION_MS) {
+					await this.stop("completed");
+					return;
+				}
+				this.lastRoundStartedAt = Date.now();
 				await this.agentManager.sendPrompt({
 					agentId: agent.id,
 					message: "继续自主活动",
@@ -194,6 +210,29 @@ export class AutonomousActivityTask {
 			}
 		}
 		throw new Error("无法创建唯一自主活动目录");
+	}
+
+	private waitForContinuationDelay(milliseconds: number): Promise<void> {
+		if (milliseconds <= 0 || this.stopRequested) return Promise.resolve();
+		return new Promise((resolve) => {
+			const timer = setTimeout(() => {
+				if (this.continuationDelayTimer === timer) {
+					this.continuationDelayTimer = null;
+					this.resolveContinuationDelay = null;
+				}
+				resolve();
+			}, milliseconds);
+			this.continuationDelayTimer = timer;
+			this.resolveContinuationDelay = resolve;
+		});
+	}
+
+	private cancelContinuationDelay(): void {
+		if (this.continuationDelayTimer) clearTimeout(this.continuationDelayTimer);
+		this.continuationDelayTimer = null;
+		const resolve = this.resolveContinuationDelay;
+		this.resolveContinuationDelay = null;
+		resolve?.();
 	}
 
 	private async waitForAgentIdle(agentId: string): Promise<void> {
