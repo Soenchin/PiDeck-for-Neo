@@ -362,6 +362,8 @@ export type DailySummarySettings = {
 export type AutonomousModeSettings = {
 	enabled: boolean;
 	idleThresholdMinutes: number;
+	/** Optional model override for autonomous Agents; omit to use Pi's default model. */
+	model?: { provider: string; id: string };
 	activities: {
 		search: boolean;
 		games: boolean;

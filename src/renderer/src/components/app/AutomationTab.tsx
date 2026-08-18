@@ -44,6 +44,14 @@ export function AutomationTab(props: {
 		});
 	};
 
+	const updateAutonomousModel = (patch: Partial<NonNullable<AutonomousModeSettings["model"]>>) => {
+		const current = autonomousMode.model ?? { provider: "", id: "" };
+		const next = { ...current, ...patch };
+		updateAutonomousMode({
+			model: next.provider.trim() || next.id.trim() ? next : undefined,
+		});
+	};
+
 	return (
 		<>
 			<SettingsSection
@@ -113,6 +121,23 @@ export function AutomationTab(props: {
 							idleThresholdMinutes: Math.max(5, Number.parseInt(value, 10) || 5),
 						})
 					}
+				/>
+				<TextField
+					className="setting-field"
+					label={t("settings.automation.autonomous.modelProvider")}
+					value={autonomousMode.model?.provider ?? ""}
+					placeholder="anthropic"
+					disabled={!autonomousMode.enabled}
+					description={t("settings.automation.autonomous.modelDesc")}
+					onChange={(provider) => updateAutonomousModel({ provider })}
+				/>
+				<TextField
+					className="setting-field"
+					label={t("settings.automation.autonomous.modelId")}
+					value={autonomousMode.model?.id ?? ""}
+					placeholder="claude-sonnet-4"
+					disabled={!autonomousMode.enabled}
+					onChange={(id) => updateAutonomousModel({ id })}
 				/>
 				<SettingSwitch
 					title={t("settings.automation.autonomous.activitySearch")}

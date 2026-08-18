@@ -108,9 +108,11 @@ export class AutonomousActivityTask {
 			await mkdir(this.screenshotsDirectory);
 			if (this.stopRequested) return;
 
+			const model = getConfiguredAutonomousModel(this.config);
 			this.agentCreation = this.agentManager.create({
 				projectId: "builtin-chat",
 				title: `自主活动 ${formatLocalTimestamp(new Date())}`,
+				...(model ? { model } : {}),
 			});
 			const agent = await this.agentCreation;
 			this.agentIdValue = agent.id;
@@ -344,6 +346,14 @@ export class AutonomousActivityTask {
 			}
 		}
 	}
+}
+
+function getConfiguredAutonomousModel(
+	config: AutonomousModeSettings,
+): { provider: string; id: string } | undefined {
+	const provider = config.model?.provider.trim();
+	const id = config.model?.id.trim();
+	return provider && id ? { provider, id } : undefined;
 }
 
 function isBskSessionStart(command: string): boolean {
