@@ -86,6 +86,58 @@ export function SettingsTab(props: {
 		});
 	};
 
+	// ── Subagent 模型配置 ──
+	const subagentsConfig = {
+		defaultModel: (data as any).subagents?.defaultModel ?? "",
+		agentOverrides: ((data as any).subagents?.agentOverrides ?? {}) as Record<string, { model?: string }>,
+		disableThinking: (data as any).subagents?.disableThinking ?? false,
+	};
+
+	const updateSubagents = (patch: Partial<typeof subagentsConfig>) => {
+		const current = (data as any).subagents ?? {};
+		const updated = { ...current, ...patch };
+		// 清理空的 defaultModel
+		if (updated.defaultModel === "") {
+			delete updated.defaultModel;
+		}
+		// 清理空的 agentOverrides
+		if (updated.agentOverrides && Object.keys(updated.agentOverrides).length === 0) {
+			delete updated.agentOverrides;
+		}
+		// 如果 subagents 块空了就整个删掉
+		if (Object.keys(updated).length === 0) {
+			const { subagents, ...rest } = data as any;
+			props.onChange(rest);
+		} else {
+			props.onChange({ ...data, subagents: updated });
+		}
+	};
+
+	const addRoleOverride = () => {
+		const overrides = { ...subagentsConfig.agentOverrides };
+		// 用时间戳作为临时唯一 key，用户需要输入真实角色名
+		const tempKey = `_new_${Date.now()}`;
+		overrides[tempKey] = { model: "" };
+		updateSubagents({ agentOverrides: overrides });
+	};
+
+	const updateRoleOverride = (oldRole: string, newRole: string, model: string) => {
+		const overrides = { ...subagentsConfig.agentOverrides };
+		if (oldRole !== newRole) {
+			delete overrides[oldRole];
+		}
+		// 只有角色名不为空才保存
+		if (newRole.trim()) {
+			overrides[newRole.trim()] = { model: model.trim() };
+		}
+		updateSubagents({ agentOverrides: overrides });
+	};
+
+	const removeRoleOverride = (role: string) => {
+		const { [role]: _removed, ...rest } = subagentsConfig.agentOverrides;
+		updateSubagents({ agentOverrides: rest });
+	};
+
 	/** 配置键名 → 显示标签（未映射的键名回退显示原始 key） */
 	const configLabel = (key: string): string => {
 		switch (key) {
@@ -161,8 +213,80 @@ export function SettingsTab(props: {
 				</div>
 				</div>
 
+				{/* ── Subagent 模型配置 ── */}
+				<div className="config-subagents-group">
+					<div className="config-settings-row config-subagents-header-row">
+						<span className="config-settings-section-title">{t("config.subagents.title")}</span>
+						<span className="config-settings-section-hint">{t("config.subagents.hint")}</span>
+					</div>
+
+					{/* 默认模型 */}
+					<div className="config-settings-row">
+						<span className="config-settings-key">{t("config.subagents.defaultModel")}</span>
+						<ConfigComboboxInput
+							value={subagentsConfig.defaultModel}
+							options={collectModels(props.modelsData, props.discoveredModels).map((m) => ({
+								label: `${m.provider}/${m.id}`,
+								value: `${m.provider}/${m.id}`,
+							}))}
+							onChange={(v) => updateSubagents({ defaultModel: v })}
+						/>
+					</div>
+
+					{/* 角色覆盖 */}
+					<div className="config-settings-row config-subagents-overrides-header">
+						<span className="config-settings-key">{t("config.subagents.overrides")}</span>
+					</div>
+					{Object.entries(subagentsConfig.agentOverrides).map(([role, cfg]) => (
+						<div key={role} className="config-settings-row config-subagents-override-row">
+							<input
+								className="config-subagents-role-input"
+								type="text"
+								value={role}
+								placeholder={t("config.subagents.rolePlaceholder")}
+								title={t("config.subagents.roleTooltip")}
+								onChange={(e) => updateRoleOverride(role, e.target.value, cfg.model ?? "")}
+							/>
+							<ConfigComboboxInput
+								value={cfg.model ?? ""}
+								options={collectModels(props.modelsData, props.discoveredModels).map((m) => ({
+									label: `${m.provider}/${m.id}`,
+									value: `${m.provider}/${m.id}`,
+								}))}
+								onChange={(v) => updateRoleOverride(role, role, v)}
+							/>
+							<button
+								className="config-subagents-remove-btn"
+								onClick={() => removeRoleOverride(role)}
+								title={t("config.subagents.removeOverride")}
+							>
+								<X size={16} />
+							</button>
+						</div>
+					))}
+					<div className="config-settings-row config-settings-row--add">
+						<button className="config-btn" onClick={addRoleOverride}>
+							<Plus size={14} />
+							{t("config.subagents.addOverride")}
+						</button>
+					</div>
+
+					{/* 关闭 thinking */}
+					<div className="config-settings-row config-subagents-thinking-row">
+						<label className="config-subagents-thinking-label">
+							<input
+								type="checkbox"
+								checked={subagentsConfig.disableThinking}
+								onChange={(e) => updateSubagents({ disableThinking: e.target.checked })}
+							/>
+							<span>{t("config.subagents.disableThinking")}</span>
+						</label>
+						<span className="config-settings-section-hint">{t("config.subagents.disableThinkingHint")}</span>
+					</div>
+				</div>
+
 				{entries
-					.filter(([key]) => key !== "enabledModels" && key !== "retry")
+					.filter(([key]) => key !== "enabledModels" && key !== "retry" && key !== "subagents")
 					.map(([key, value]) => (
 					<div key={key} className="config-settings-row">
 						<span className="config-settings-key">{configLabel(key)}</span>

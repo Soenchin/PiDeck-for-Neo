@@ -18298,6 +18298,110 @@ a.config-btn {
   color: var(--color-text-secondary);
 }
 
+/* ────── Subagents 配置 ────── */
+.config-subagents-group {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.config-subagents-group .config-settings-row {
+  border: none;
+  border-radius: 0;
+}
+.config-subagents-group .config-settings-row:hover {
+  border-color: transparent;
+}
+.config-subagents-header-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 16px 4px;
+  border: none;
+  border-radius: 0;
+  cursor: default;
+}
+.config-subagents-header-row:hover {
+  border-color: transparent;
+}
+.config-subagents-overrides-header {
+  padding-top: 8px;
+  padding-bottom: 4px;
+}
+.config-subagents-overrides-header .config-settings-key {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+.config-subagents-override-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+}
+.config-subagents-role-input {
+  padding: var(--space-1-5) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-control);
+  font-family: var(--font-family-base);
+  transition: border-color 0.15s;
+}
+.config-subagents-role-input:hover {
+  border-color: var(--color-border-hover);
+}
+.config-subagents-role-input:focus-visible {
+  outline: var(--focus-ring);
+  border-color: var(--color-border-focus);
+}
+.config-subagents-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.config-subagents-remove-btn:hover {
+  background: var(--color-bg-danger-subtle);
+  color: var(--color-text-danger);
+}
+.config-subagents-remove-btn:focus-visible {
+  outline: var(--focus-ring);
+}
+.config-subagents-thinking-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+}
+.config-subagents-thinking-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-control);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+.config-subagents-thinking-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.config-subagents-thinking-label span {
+  user-select: none;
+}
+
 /* ---------- Scratch Pad（草稿本） ---------- */
 .scratch-pad-overlay {
   position: fixed;
