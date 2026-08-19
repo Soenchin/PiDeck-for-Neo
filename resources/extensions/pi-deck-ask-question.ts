@@ -58,10 +58,10 @@ interface Answer {
 interface AskCtx {
 	hasUI: boolean;
 	ui: {
-		select: (question: string, options: string[]) => Promise<string>;
+		select: (question: string, options: string[]) => Promise<string | null | undefined>;
 		confirm: (question: string, description?: string) => Promise<boolean>;
-		input: (question: string, placeholder?: string) => Promise<string>;
-		editor: (question: string, prefill?: string) => Promise<string>;
+		input: (question: string, placeholder?: string) => Promise<string | null | undefined>;
+		editor: (question: string, prefill?: string) => Promise<string | null | undefined>;
 	};
 }
 
@@ -211,8 +211,8 @@ function batchResult(qs: NormalizedQuestion[], answers: Answer[], cancelled: boo
 }
 
 /**
- * 执行单个问题的提问。select 会按 allowOther 追加「自行输入」项；
- * 用户取消时由框架层抛出，调用方在循环里 try-catch 中断批量。
+ * 执行单个问题的提问。RPC UI 取消 select/input/editor 时会返回 undefined，
+ * 这里显式抛出以进入外层取消分支，避免 select 静默回退到第一项。
  */
 async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 	switch (q.type) {
@@ -227,7 +227,9 @@ async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 			// 循环：取消「自行输入」后回到选单，而非直接返回
 			while (true) {
 				const selected = await ctx.ui.select(q.question, labels);
-				const chosen = opts.find((o) => optionDisplayText(o) === selected) ?? opts[0];
+				if (selected == null) throw new Error("ask_question cancelled");
+				const chosen = opts.find((o) => optionDisplayText(o) === selected);
+				if (!chosen) throw new Error("ask_question returned an unknown option");
 				if (chosen.isOther) {
 					const custom = await ctx.ui.input(`${q.question}（自行输入）`, "");
 					if (custom?.trim()) {
@@ -246,11 +248,13 @@ async function askOne(q: NormalizedQuestion, ctx: AskCtx): Promise<Answer> {
 		}
 		case "editor": {
 			const text = await ctx.ui.editor(q.question, q.prefill ?? "");
+			if (text == null) throw new Error("ask_question cancelled");
 			return { id: q.id, type: q.type, value: text };
 		}
 		default: {
 			// input 类型
 			const text = await ctx.ui.input(q.question, q.placeholder ?? "");
+			if (text == null) throw new Error("ask_question cancelled");
 			return { id: q.id, type: q.type, value: text };
 		}
 	}

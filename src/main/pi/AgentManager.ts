@@ -1168,9 +1168,8 @@ export class AgentManager {
 
 		// pi 在等待 extension_ui_response 时（如 ask_question），不发 abort 也能处理，
 		// 但必须解除 pending 请求的阻塞，否则 pi 不会继续读取 stdin 中的后续命令。
-		// 发 cancelled: true 会导致 pi 返回 undefined，ask_question 工具默认选第一个；
-		// 改发 value: null（不带 cancelled 标记），select parser 返回 null，
-		// 工具 result 的 answer = null，answered 为 false → 卡片显示"已取消"。
+		// Stop 使用 value: null 解锁所有 dialog；PiDeck 的 ask_question 扩展会把 null
+		// 统一视为取消，避免 select 回退第一项或 input/editor 产出伪答案。
 		const pending = this.pendingUIRequests.get(agentId);
 		if (pending && pending.size > 0) {
 			this.abortedDuringAsk.add(agentId);

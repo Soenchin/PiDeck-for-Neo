@@ -2310,100 +2310,166 @@ export const DiagnosticMessageCard = memo(function DiagnosticMessageCard(props: 
 	);
 });
 
+/** 当前待回答的 Extension UI 请求。回答完成后的历史展示仍由 ToolCard 负责。 */
+export interface AskQuestionRequest {
+	requestId: string;
+	method: string;
+	title?: string;
+	options?: string[];
+	placeholder?: string;
+	prefill?: string;
+}
+
 /**
- * 内联提问卡片：渲染 Extension UI 请求（select/confirm/input/editor）作为 system 消息。
- * 用于实时会话中模型通过 ask_question 扩展向用户发起交互。
+ * 底部提问卡片：固定渲染在 composer 上方，不再作为 pending system 消息插入时间线。
+ * select 的“自行输入”仍需先选择扩展追加的特殊选项，再由 App 自动回答后续 input 请求。
  */
 export const AskQuestionCard = memo(function AskQuestionCard(props: {
-	message: ChatMessage;
-	onRespond?: (response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) => void;
+	request: AskQuestionRequest;
+	onRespond?: (response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) => void | Promise<void>;
+	onSubmitCustomSelect?: (value: string) => void | Promise<void>;
 }) {
-	const meta = props.message.meta as Record<string, unknown> | undefined;
-	const uiRequest = meta?.uiRequest as Record<string, unknown> | undefined;
-	const status = String(meta?.status ?? "pending");
-	const response = meta?.response as Record<string, unknown> | undefined;
-	const answered = status === "answered" && response && !response.cancelled;
-	const cancelled = status === "cancelled" || status === "error";
+	const { request } = props;
+	const method = request.method || "input";
+	const title = request.title ?? "";
+	const placeholder = request.placeholder ?? "";
+	const options = request.options ?? [];
+	const customOption = options.find((option) => option.startsWith("✎"));
+	const visibleOptions = options.filter((option) => !option.startsWith("✎"));
 
-	const [inputValue, setInputValue] = useState("");
+	const [inputValue, setInputValue] = useState(request.prefill ?? "");
+	const [responding, setResponding] = useState(false);
 	const [cancelling, setCancelling] = useState(false);
-	const inputRef = useRef<HTMLTextAreaElement>(null);
+	const interactionDisabled = responding || cancelling;
 
-	// 编辑器输入 ref
-	const editorRef = useRef<HTMLTextAreaElement>(null);
-
-	// 当 prefill 变化时同步到 inputValue
+	// key 通常会随 requestId 重建组件；这里仍显式同步，兼容宿主复用同一实例的情况。
 	useEffect(() => {
-		if (uiRequest?.prefill) setInputValue(String(uiRequest.prefill));
-	}, [uiRequest?.prefill]);
+		setInputValue(request.prefill ?? "");
+		setResponding(false);
+		setCancelling(false);
+	}, [request.requestId, request.prefill]);
+
+	const submitResponse = (response: { value?: string | boolean; cancelled?: boolean; confirmed?: boolean }) => {
+		if (!props.onRespond) return;
+		setResponding(true);
+		void Promise.resolve()
+			.then(() => props.onRespond?.(response))
+			.catch(() => setResponding(false));
+	};
 
 	const handleSelect = (value: string) => {
-		props.onRespond?.({ value });
+		if (interactionDisabled) return;
+		submitResponse({ value });
 	};
 
 	const handleConfirm = (value: boolean) => {
-		props.onRespond?.({ confirmed: value });
+		if (interactionDisabled) return;
+		submitResponse({ confirmed: value });
 	};
 
 	const handleInputSubmit = () => {
-		if (inputValue.trim()) {
-			props.onRespond?.({ value: inputValue });
-		}
+		if (interactionDisabled || !inputValue.trim()) return;
+		submitResponse({ value: inputValue });
+	};
+
+	const handleCustomSubmit = () => {
+		if (interactionDisabled || !inputValue.trim() || !customOption || !props.onSubmitCustomSelect) return;
+		setResponding(true);
+		void Promise.resolve()
+			.then(() => props.onSubmitCustomSelect?.(inputValue.trim()))
+			.catch(() => setResponding(false));
 	};
 
 	const handleCancel = () => {
+		if (interactionDisabled || !props.onRespond) return;
 		setCancelling(true);
-		props.onRespond?.({ cancelled: true });
+		void Promise.resolve()
+			.then(() => props.onRespond?.({ cancelled: true }))
+			.catch(() => setCancelling(false));
 	};
 
-	// 已回答/取消的卡片：信息已在 ToolCard 的 _askCard 中展示，此处不再重复渲染
-	if (answered || cancelled) {
-		return null;
-	}
-
-	// pending 卡片：显示交互界面
-	const cancellingLabel = t("ask.cancelling");
-	const method = String(uiRequest?.method ?? "input");
-	const title = String(uiRequest?.title ?? "");
-	const placeholder = String(uiRequest?.placeholder ?? "");
-	const options = uiRequest?.options as string[] | undefined;
-
 	return (
-		<article className="ask-question-card pending" data-message-id={props.message.id}>
+		<article className="ask-question-card pending" data-request-id={request.requestId} aria-live="polite">
 			<div className="ask-question-card-header">
-				<MessageCircle size={14} />
+				<MessageCircle size={14} aria-hidden="true" />
 				<span className="ask-question-card-title">{title || t("ask.defaultTitle")}</span>
-				<span className="ask-question-card-status">{cancelling ? t("ask.cancelling") : t("ask.waiting")}</span>
+				<span className="ask-question-card-status">
+					{cancelling ? t("ask.cancelling") : responding ? t("ask.submitting") : t("ask.waiting")}
+				</span>
+				{/* RPC confirm 会把取消折叠为 false；不显示一个语义虚假的取消入口。 */}
+				{method !== "confirm" && (
+					<button
+						type="button"
+						className="ask-question-card-cancel"
+						onClick={handleCancel}
+						disabled={interactionDisabled}
+						title={t("ask.cancelQuestion")}
+						aria-label={t("ask.cancelQuestion")}
+					>
+						<X size={14} />
+					</button>
+				)}
 			</div>
 			<div className="ask-question-card-body">
-				{method === "select" && options && options.length > 0 && (
+				{method === "select" && visibleOptions.length > 0 && (
 					<div className="ask-question-card-options">
-						{/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
-						{options.filter((opt) => !opt.startsWith("✎")).map((opt, i) => (
+						{visibleOptions.map((option, index) => (
 							<button
-								key={i}
+								type="button"
+								key={`${index}:${option}`}
 								className="ask-question-card-option"
-								onClick={() => handleSelect(opt)}
-								disabled={cancelling}
+								onClick={() => handleSelect(option)}
+								disabled={interactionDisabled}
+								autoFocus={index === 0}
 							>
-								{opt}
+								{option}
 							</button>
 						))}
+					</div>
+				)}
+				{method === "select" && customOption && (
+					<div className="ask-question-card-input-row ask-question-card-custom-row">
+						<textarea
+							className="ask-question-card-input"
+							placeholder={t("ask.customPlaceholder")}
+							value={inputValue}
+							onChange={(event) => setInputValue(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" && !event.shiftKey) {
+									event.preventDefault();
+									handleCustomSubmit();
+								}
+							}}
+							disabled={interactionDisabled}
+						/>
+						<button
+							type="button"
+							className="ask-question-card-submit"
+							onClick={handleCustomSubmit}
+							disabled={!inputValue.trim() || interactionDisabled}
+							title={t("ask.submit")}
+							aria-label={t("ask.submit")}
+						>
+							<Check size={14} />
+						</button>
 					</div>
 				)}
 				{method === "confirm" && (
 					<div className="ask-question-card-options ask-question-card-options-confirm">
 						<button
+							type="button"
 							className="ask-question-card-option ask-question-card-option-yes"
 							onClick={() => handleConfirm(true)}
-							disabled={cancelling}
+							disabled={interactionDisabled}
+							autoFocus
 						>
 							{t("common.true")}
 						</button>
 						<button
+							type="button"
 							className="ask-question-card-option ask-question-card-option-no"
 							onClick={() => handleConfirm(false)}
-							disabled={cancelling}
+							disabled={interactionDisabled}
 						>
 							{t("common.false")}
 						</button>
@@ -2412,64 +2478,49 @@ export const AskQuestionCard = memo(function AskQuestionCard(props: {
 				{method === "input" && (
 					<div className="ask-question-card-input-row">
 						<textarea
-							ref={inputRef}
 							className="ask-question-card-input"
 							placeholder={placeholder || t("ask.inputPlaceholder")}
 							value={inputValue}
-							onChange={(e) => setInputValue(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && !e.shiftKey) {
-									e.preventDefault();
+							onChange={(event) => setInputValue(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" && !event.shiftKey) {
+									event.preventDefault();
 									handleInputSubmit();
 								}
 							}}
-							disabled={cancelling}
+							disabled={interactionDisabled}
+							autoFocus
 						/>
 						<button
+							type="button"
 							className="ask-question-card-submit"
 							onClick={handleInputSubmit}
-							disabled={!inputValue.trim() || cancelling}
+							disabled={!inputValue.trim() || interactionDisabled}
 							title={t("ask.submit")}
+							aria-label={t("ask.submit")}
 						>
 							<Check size={14} />
-						</button>
-						<button
-							className="ask-question-card-cancel"
-							onClick={handleCancel}
-							disabled={cancelling}
-							title={t("common.cancel")}
-							aria-label={t("common.cancel")}
-						>
-							<X size={14} />
 						</button>
 					</div>
 				)}
 				{method === "editor" && (
 					<div className="ask-question-card-editor-area">
 						<textarea
-							ref={editorRef}
 							className="ask-question-card-editor"
 							placeholder={placeholder || t("ask.editorPlaceholder")}
 							value={inputValue}
-							onChange={(e) => setInputValue(e.target.value)}
-							disabled={cancelling}
+							onChange={(event) => setInputValue(event.target.value)}
+							disabled={interactionDisabled}
+							autoFocus
 						/>
 						<div className="ask-question-card-editor-actions">
 							<button
+								type="button"
 								className="ask-question-card-submit"
 								onClick={handleInputSubmit}
-								disabled={!inputValue.trim() || cancelling}
+								disabled={!inputValue.trim() || interactionDisabled}
 							>
 								{t("ask.submit")}
-							</button>
-							<button
-								className="ask-question-card-cancel"
-								onClick={handleCancel}
-								disabled={cancelling}
-								title={t("common.cancel")}
-								aria-label={t("common.cancel")}
-							>
-								<X size={14} />
 							</button>
 						</div>
 					</div>

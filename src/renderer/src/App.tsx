@@ -23,7 +23,6 @@ import {
   ChevronDown,
   Code,
   Info,
-  MessageCircle,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -670,14 +669,16 @@ export function App() {
   );
   /** 当前正在重启的 Agent，用于仅给对应会话显示 loading，避免切到其他 Agent 后仍被全局禁用。 */
   const [restartingAgentId, setRestartingAgentId] = useState<string | null>(null);
-  /** 用户点击 ask_question 取消/abort 后的过渡标记，立即隐藏运行指示器。 */
-  const [cancellingUi, setCancellingUi] = useState(false);
   const [attachedImagesByAgent, setAttachedImagesByAgent] = useState<
     Record<string, ImageContent[]>
   >({});
   const [previewImage, setPreviewImage] = useState<ImageContent | null>(null);
-  /** 存储用户在 select 弹框自定义输入框中键入的值，用于在后续 input 弹框中自动提交 */
-  const pendingCustomInputRef = useRef("");
+  /** select 自定义答案需跨越 select → input 两个 RPC 请求；绑定 agent 与预期标题，避免串答。 */
+  const pendingCustomInputRef = useRef<{
+    agentId: string;
+    expectedTitle: string;
+    value: string;
+  } | null>(null);
   /** 外部编辑器列表 + 弹出气泡状态 */
   const [externalEditors, setExternalEditors] = useState<ExternalEditor[]>([]);
   const [editorsOpen, setEditorsOpen] = useState(false);
@@ -1618,29 +1619,52 @@ export function App() {
     }
     return undefined;
   }, [activeMessages]);
-  // 从 activeUiRequest 提取正在进行的交互式请求（select/confirm/input/editor）
-  // 这是 ask_question 在 pi RPC 模式下的表现方式：pi 通过 extension_ui_request 将
-  // 等待用户回答的对话框发送到桌面端，包含 requestId、title、options 等完整信息。
+  // ask_question 请求按 agent 隔离。实时事件优先；Renderer 刷新错过事件时，
+  // 从主进程保留的 pending system 消息恢复，避免卡片消失但 Agent 仍在等待。
   const activeUiAsk = useMemo(() => {
-    if (!activeUiRequest || !activeAgentId) return undefined;
-    return Object.values(activeUiRequest).find(
-      (req) =>
-        req.agentId === activeAgentId &&
-        !req.completed &&
-        ["select", "confirm", "input", "editor"].includes(req.method),
-    );
-  }, [activeUiRequest, activeAgentId]);
-  // dialog 显示条件：仅当有活跃的交互式 UI 请求时
-  const showAskDialog = activeUiAsk !== undefined;
-  // 用 body class 控制内联 ask 卡片的显示
+    if (!activeAgentId) return undefined;
+    const liveRequest = activeUiRequest
+      ? Object.values(activeUiRequest).find(
+          (req) =>
+            req.agentId === activeAgentId &&
+            !req.completed &&
+            ["select", "confirm", "input", "editor"].includes(req.method),
+        )
+      : undefined;
+    if (liveRequest) return liveRequest;
+
+    for (let index = activeMessages.length - 1; index >= 0; index--) {
+      const message = activeMessages[index];
+      if (message.role !== "system") continue;
+      const meta = message.meta as Record<string, unknown> | undefined;
+      if (meta?.type !== "askQuestion" || meta.status !== "pending") continue;
+      const request = meta.uiRequest as UiRequest | undefined;
+      if (
+        request?.agentId === activeAgentId &&
+        ["select", "confirm", "input", "editor"].includes(request.method)
+      ) {
+        return request;
+      }
+    }
+    return undefined;
+  }, [activeUiRequest, activeAgentId, activeMessages]);
+
+  // 新问题出现时强制把消息区移到最新，让用户先看到提问前的上下文；卡片本身固定在 composer 上方。
   useEffect(() => {
-    document.body.classList.toggle("ask-dialog-open", showAskDialog);
-    return () => document.body.classList.remove("ask-dialog-open");
-  }, [showAskDialog]);
+    if (!activeUiAsk?.requestId) return;
+    const frame = requestAnimationFrame(() => {
+      const timeline = timelineRef.current;
+      if (!timeline) return;
+      timeline.scrollTo({ top: timeline.scrollHeight, behavior: "smooth" });
+      setAutoScroll(true);
+      autoScrollRef.current = true;
+      setShowScrollToBottom(false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeUiAsk?.requestId]);
 
   const isAwaitingAssistant = Boolean(
     activeAgent &&
-    !cancellingUi &&
     (activeAgent.status === "running" || activeRuntimeState?.isStreaming) &&
     activeMessages.at(-1)?.role !== "assistant",
   );
@@ -2217,11 +2241,16 @@ export function App() {
 
       /* 自定义输入会由 Pi 产生一个新的 input request。自动回传必须在 state updater 外：
          React StrictMode 可能重复调用 updater，进而让相同 requestId 回传两次并卡住批量问答。 */
-      if (request.method === "input" && pendingCustomInputRef.current) {
-        const value = pendingCustomInputRef.current;
-        pendingCustomInputRef.current = "";
-        void api.agents.sendUiResponse(request.agentId, request.requestId, { value });
-        return; // 不显示中间 input 框
+      const pendingCustomInput = pendingCustomInputRef.current;
+      if (request.method === "input" && pendingCustomInput?.agentId === request.agentId) {
+        pendingCustomInputRef.current = null;
+        if (request.title === pendingCustomInput.expectedTitle) {
+          void api.agents.sendUiResponse(request.agentId, request.requestId, {
+            value: pendingCustomInput.value,
+          });
+          return; // 自定义 select 已在同一张卡片收集答案，不显示协议中的中间 input 请求。
+        }
+        // 同一 agent 先出现了别的 input，说明自定义流程已被中断；丢弃暂存答案，禁止串答。
       }
 
       setActiveUiRequest((current) => ({
@@ -4251,7 +4280,7 @@ export function App() {
 
   /** 判断 agent 是否处于忙碌状态(正在处理消息或流式输出中) */
   const isAgentStarting = activeAgent?.status === "starting";
-  const composerDisabled = !activeAgent || isAgentStarting;
+  const composerDisabled = !activeAgent || isAgentStarting || activeUiAsk !== undefined;
   const isAgentBusy = Boolean(
     activeAgent &&
     (activeAgent.status === "running" ||
@@ -4264,7 +4293,7 @@ export function App() {
   // 避免用户必须精准点回小箭头才能退出选择状态。
   useEffect(() => {
     if (!sendBehaviorMenuOpen) return;
-    if (!isAgentBusy) {
+    if (!isAgentBusy || composerDisabled) {
       setSendBehaviorMenuOpen(false);
       return;
     }
@@ -4276,7 +4305,7 @@ export function App() {
     };
     document.addEventListener("pointerdown", handleOutsidePointerDown);
     return () => document.removeEventListener("pointerdown", handleOutsidePointerDown);
-  }, [isAgentBusy, sendBehaviorMenuOpen]);
+  }, [composerDisabled, isAgentBusy, sendBehaviorMenuOpen]);
 
   // 切换 agent 时不能沿用上一会话的 busy 边沿,否则旧 agent 结束可能误触发新 agent 的 goal 续接。
   useEffect(() => {
@@ -6225,23 +6254,8 @@ ${goalTextRef.current}
                 }
                 if (message.role === "system") {
                   const meta = message.meta as any;
-                  if (meta?.type === "askQuestion") {
-                    return (
-                      <AskQuestionCard key={message.id} message={message} onRespond={(response) => {
-                        const req = meta.uiRequest;
-                        if (!req || !activeAgentId) return;
-                        // cancelled 通过 sendUiResponse 正常发送：pi 的 rpc-mode 对
-                        // select/input/editor 返回 undefined（卡片显示"已取消"），
-                        // confirm 返回 false（同"否"，pi 的 ctx.ui.confirm() 不区分取消和否）
-                        if (response.cancelled) {
-                          setCancellingUi(true);
-                          api.agents.sendUiResponse(activeAgentId, req.requestId, response);
-                        } else {
-                          api.agents.sendUiResponse(activeAgentId, req.requestId, response);
-                        }
-                      }} />
-                    );
-                  }
+                  // pending ask_question 只在 composer 上方展示；回答结果由 ToolCard 留在历史时间线。
+                  if (meta?.type === "askQuestion") return null;
                   if (meta?.type === "compaction") {
                     return (
                       <CompactionCard key={message.id} message={message} />
@@ -6281,7 +6295,7 @@ ${goalTextRef.current}
                 </>
               )}
               {/* 状态指示器：agent 运行或流式期间始终与回复并行展示 */}
-              {activeAgent && !cancellingUi &&
+              {activeAgent &&
                 (activeAgent.status === "running" || activeRuntimeState?.isStreaming) && (
                 <ThinkingIndicator
                   thinking={activeThinking}
@@ -6395,6 +6409,41 @@ ${goalTextRef.current}
               </div>
             );
           })()}
+          {activeUiAsk && activeAgentId && (
+            <AskQuestionCard
+              key={activeUiAsk.requestId}
+              request={activeUiAsk}
+              onRespond={(response) =>
+                api.agents.sendUiResponse(
+                  activeAgentId,
+                  activeUiAsk.requestId,
+                  response,
+                )
+              }
+              onSubmitCustomSelect={(value) => {
+                const customOption = activeUiAsk.options?.find((option) =>
+                  option.startsWith("✎"),
+                );
+                if (!customOption) return;
+                pendingCustomInputRef.current = {
+                  agentId: activeAgentId,
+                  expectedTitle: `${activeUiAsk.title}（自行输入）`,
+                  value,
+                };
+                return api.agents
+                  .sendUiResponse(activeAgentId, activeUiAsk.requestId, {
+                    value: customOption,
+                  })
+                  .catch((error) => {
+                    // select 响应发送失败时不能把答案遗留给该 agent 的下一个普通 input 请求。
+                    if (pendingCustomInputRef.current?.agentId === activeAgentId) {
+                      pendingCustomInputRef.current = null;
+                    }
+                    throw error;
+                  });
+              }}
+            />
+          )}
           <div
             ref={composerBoxRef}
             className={`composer-box ${
@@ -6465,7 +6514,9 @@ ${goalTextRef.current}
                   ? t("app.agentStartingPlaceholder")
                   : !activeAgent
                     ? t("app.composerNoAgentPlaceholder")
-                    : prompt.startsWith("!!")
+                    : activeUiAsk
+                      ? t("app.composerAskPendingPlaceholder")
+                      : prompt.startsWith("!!")
                       ? t("app.composerSilentPlaceholder")
                       : prompt.startsWith("!")
                         ? t("app.composerShellPlaceholder")
@@ -6566,7 +6617,7 @@ ${goalTextRef.current}
                   ) : (
                     <button
                       disabled={
-                        isAgentStarting ||
+                        composerDisabled ||
                         !activeAgentId ||
                         (!prompt.trim() && attachedImages.length === 0)
                       }
@@ -6578,6 +6629,7 @@ ${goalTextRef.current}
                     </button>
                   )}
                   {isAgentBusy &&
+                    !composerDisabled &&
                     (prompt.trim() || attachedImages.length > 0) && (
                       <button
                         type="button"
@@ -6590,7 +6642,7 @@ ${goalTextRef.current}
                         <ChevronDown size={14} strokeWidth={2.25} />
                       </button>
                     )}
-                  {sendBehaviorMenuOpen && (
+                  {sendBehaviorMenuOpen && !composerDisabled && (
                     <div className="send-behavior-menu" role="menu">
                       <button
                         type="button"
@@ -7728,151 +7780,6 @@ ${goalTextRef.current}
         </div>
       )}
 
-    {/* ask_question 弹出 dialog - 仅在 pi 通过 extension_ui_request 发送交互请求时显示 */}
-    {showAskDialog && activeUiAsk && (
-      <div className="modal-backdrop" onClick={undefined}>
-        <div className="ask-dialog" onClick={(e) => e.stopPropagation()}>
-          <div className="ask-dialog-header">
-            <MessageCircle size={16} />
-            <span>{t("ask.toolName")}</span>
-            {/* 关闭按钮：点击后取消当前请求，select 类型会提示模型默认选第一项 */}
-            <button
-              className="ask-dialog-close-btn"
-              title={t("common.close")}
-              onClick={() => {
-                const isSelect = activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0;
-                if (isSelect) {
-                  showToast(t("ask.cancelHint"));
-                }
-                if (activeUiAsk.requestId && activeAgentId) {
-                  api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { cancelled: true });
-                }
-              }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-          <div className="ask-dialog-question">{activeUiAsk.title || t("ask.pending")}</div>
-          {activeUiAsk.method === "confirm" ? (
-            <div className="ask-dialog-options ask-dialog-options-confirm">
-              <button
-                className="ask-dialog-option"
-                onClick={() => {
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: true });
-                  }
-                }}
-              >
-                {t("common.true")}
-              </button>
-              <button
-                className="ask-dialog-option"
-                onClick={() => {
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { confirmed: false });
-                  }
-                }}
-              >
-                {t("common.false")}
-              </button>
-            </div>
-          ) : activeUiAsk.options && activeUiAsk.options.length > 0 ? (
-            <div className="ask-dialog-options">
-              {/* 过滤掉 Pi 自带的 "✎ 自行输入..." 选项，用下方内联输入框替代 */}
-              {activeUiAsk.options.filter((opt) => {
-                const label = typeof opt === "string" ? opt : String((opt as any).label ?? opt);
-                return !label.startsWith("✎");
-              }).map((opt, i) => {
-                const val = typeof opt === "string" ? opt : String((opt as any).value ?? (opt as any).label ?? opt);
-                const label = typeof opt === "string" ? opt : (opt as any).label ?? val;
-                return (
-                  <button
-                    key={i}
-                    className="ask-dialog-option"
-                    onClick={() => {
-                      if (activeUiAsk.requestId && activeAgentId) {
-                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: val });
-                      }
-                    }}
-                  >
-                    <span className="ask-dialog-option-marker">{label}</span>
-                  </button>
-                );
-              })}
-              <div className="ask-dialog-custom-input">
-                <input
-                  id="ask-dialog-custom-field"
-                  className="ask-dialog-custom-field"
-                  placeholder={t("ask.customPlaceholder")}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      const el = document.getElementById("ask-dialog-custom-field") as HTMLInputElement | null;
-                      const val = el?.value?.trim() ?? "";
-                      if (val && activeUiAsk.requestId && activeAgentId) {
-                        /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
-                        pendingCustomInputRef.current = val;
-                        api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
-                      }
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="ask-dialog-submit-btn"
-                  onClick={() => {
-                    const el = document.getElementById("ask-dialog-custom-field") as HTMLInputElement | null;
-                    const val = el?.value?.trim() ?? "";
-                    if (val && activeUiAsk.requestId && activeAgentId) {
-                      /* 保存自定义值到 ref，选择 "✎ 自行输入..." 让 Pi 走 input 流 */
-                      pendingCustomInputRef.current = val;
-                      api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value: "✎ 自行输入..." });
-                    }
-                  }}
-                >
-                  {t("common.submit")}
-                </button>
-              </div>
-            </div>
-          ) : activeUiAsk.method === "input" || activeUiAsk.method === "editor" ? (
-            <div className="ask-dialog-input-area">
-              <input
-                id="ask-dialog-input"
-                className="ask-dialog-input"
-                placeholder={activeUiAsk.placeholder || ""}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && activeUiAsk.requestId && activeAgentId) {
-                    const value = (e.target as HTMLInputElement).value;
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                  }
-                }}
-              />
-              <button
-                className="ask-dialog-submit-btn"
-                onClick={() => {
-                  const value = (document.getElementById("ask-dialog-input") as HTMLInputElement)?.value ?? "";
-                  if (activeUiAsk.requestId && activeAgentId) {
-                    api.agents.sendUiResponse(activeAgentId, activeUiAsk.requestId, { value });
-                  }
-                }}
-              >
-                {t("common.submit")}
-              </button>
-            </div>
-
-          ) : null}
-          {/* select 类型取消提示 */}
-          {activeUiAsk.method === "select" && Array.isArray(activeUiAsk.options) && activeUiAsk.options.length > 0 && (
-            <div className="ask-dialog-cancel-hint">
-              <Info size={12} />
-              <span>{t("ask.cancelHint")}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
     </div>
   );
 }
