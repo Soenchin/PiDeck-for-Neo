@@ -23,11 +23,14 @@ export class DailySummaryTask {
 	) {}
 
 	async execute(): Promise<void> {
-		const messages = await this.collectTodayMessages();
-		const turnCount = messages.filter((message) => message.role === "user").length;
-		if (turnCount < this.config.minTurns) {
+		const { filePaths, userTurnCount } = await this.collectTodaySessions();
+		if (filePaths.length === 0) {
+			console.log("[DailySummaryTask] 今日无会话，跳过");
+			return;
+		}
+		if (userTurnCount < this.config.minTurns) {
 			console.log(
-				`[DailySummaryTask] 今日用户消息 ${turnCount} 轮，少于阈值 ${this.config.minTurns}，跳过`,
+				`[DailySummaryTask] 今日用户消息 ${userTurnCount} 轮，少于阈值 ${this.config.minTurns}，跳过`,
 			);
 			return;
 		}
@@ -40,7 +43,7 @@ export class DailySummaryTask {
 		});
 
 		try {
-			let summary = await this.generateSummary(agent.id, messages, date);
+			let summary = await this.generateSummary(agent.id, filePaths, date);
 			if (this.config.requireReview) {
 				const reviewed = await this.requestReview({
 					id: randomUUID(),
@@ -65,7 +68,7 @@ export class DailySummaryTask {
 		}
 	}
 
-	private async collectTodayMessages(): Promise<SessionMessage[]> {
+	private async collectTodaySessions(): Promise<{ filePaths: string[]; userTurnCount: number }> {
 		const now = new Date();
 		const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 		const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
@@ -73,31 +76,31 @@ export class DailySummaryTask {
 			(session) => session.updatedAt >= start && session.updatedAt < end,
 		);
 
-		const messages: SessionMessage[] = [];
+		const filePaths: string[] = [];
+		let userTurnCount = 0;
 		for (const session of sessions) {
+			filePaths.push(session.filePath);
 			try {
 				const sessionMessages = await this.sessionScanner.readMessages(session.filePath);
-				messages.push(
-					...sessionMessages.filter(
-						(message) => message.timestamp >= start && message.timestamp < end,
-					),
-				);
+				userTurnCount += sessionMessages.filter(
+					(message) => message.role === "user" && message.timestamp >= start && message.timestamp < end,
+				).length;
 			} catch (error) {
 				console.error(`[DailySummaryTask] 读取会话失败: ${session.filePath}`, error);
 			}
 		}
 
-		return messages.sort((left, right) => left.timestamp - right.timestamp);
+		return { filePaths, userTurnCount };
 	}
 
 	private async generateSummary(
 		agentId: string,
-		messages: SessionMessage[],
+		filePaths: string[],
 		date: string,
 	): Promise<string> {
 		await this.agentManager.sendPrompt({
 			agentId,
-			message: this.buildSummaryPrompt(messages, date),
+			message: this.buildSummaryPrompt(filePaths, date),
 		});
 		await this.waitForAgentIdle(agentId);
 
@@ -109,12 +112,9 @@ export class DailySummaryTask {
 		throw new Error("未获取到有效的总结内容");
 	}
 
-	private buildSummaryPrompt(messages: SessionMessage[], date: string): string {
-		const conversations = messages
-			.map((message) => `${message.role === "user" ? "用户" : "助手"}: ${message.content}`)
-			.join("\n\n");
-
-		return `请根据以下 ${date} 的对话记录生成每日总结，覆盖完成的工作、学到的知识、遇到的问题和解决方案。直接输出总结正文，不要调用任何工具。\n\n对话记录：\n${conversations}`;
+	private buildSummaryPrompt(filePaths: string[], date: string): string {
+		const fileList = filePaths.map((path) => `  - ${path}`).join("\n");
+		return `请根据 ${date} 的对话记录生成每日总结。\n\n请先使用 read 工具依次读取以下会话文件（JSONL 格式，每行一条 JSON 消息），提取今日对话内容，然后生成总结。总结应覆盖完成的工作、学到的知识、遇到的问题和解决方案。\n\n今日会话文件：\n${fileList}`;
 	}
 
 	private async saveSummary(agentId: string, summary: string, date: string): Promise<void> {
