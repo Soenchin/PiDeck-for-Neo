@@ -1,4 +1,5 @@
 export * from "./session-atoms";
+export * from "./session-unread-atoms";
 export * from "./session-selectors";
 export * from "./session-outline-atoms";
 export * from "./composer-atoms";

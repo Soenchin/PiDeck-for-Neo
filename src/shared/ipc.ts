@@ -87,6 +87,8 @@ export const ipcChannels = {
 	sessionsRuntimeFork: "sessions:runtime-fork",
 	/** 渲染层汇报当前聚焦的会话（用于非聚焦会话 Ask 请求的桌面通知） */
 	sessionsSetFocusedSession: "sessions:set-focused-session",
+	/** 置顶/取消置顶会话（PiDeck 界面偏好，按会话文件键控，不写 pi 会话文件） */
+	sessionsSetPinned: "sessions:set-pinned",
 	codexSessionsScan: "codex-sessions:scan",
 	codexSessionsImport: "codex-sessions:import",
 	claudeSessionsScan: "claude-sessions:scan",

@@ -42,6 +42,10 @@ export type SessionCatalogEntry = {
 	parentSessionPath?: string;
 	model?: { provider: string; modelId: string };
 	thinkingLevel?: string;
+	/** 自动标题锁：用户手动改名后为 true，自动生成不得覆盖（NeoNext 1-c） */
+	titleLocked?: boolean;
+	/** 自动标题已生成过：生成器写回后置位，防止每轮 agent_settled 重复调用模型（NeoNext 1-c） */
+	titleGenerated?: boolean;
 	piSessionId?: string;
 	createdAt: number;
 	updatedAt: number;
@@ -374,7 +378,7 @@ export class SessionCatalog {
 		id: string,
 		patch: Partial<Pick<
 			SessionCatalogEntry,
-			"title" | "model" | "thinkingLevel" | "updatedAt"
+			"title" | "model" | "thinkingLevel" | "updatedAt" | "titleLocked" | "titleGenerated"
 		>>,
 	): Promise<SessionRecord> {
 		this.assertLoaded();
@@ -383,6 +387,8 @@ export class SessionCatalog {
 			if (patch.title !== undefined) transient.title = patch.title;
 			if (patch.model !== undefined) transient.model = patch.model;
 			if (patch.thinkingLevel !== undefined) transient.thinkingLevel = patch.thinkingLevel;
+			if (patch.titleLocked !== undefined) transient.titleLocked = patch.titleLocked;
+			if (patch.titleGenerated !== undefined) transient.titleGenerated = patch.titleGenerated;
 			transient.updatedAt = patch.updatedAt ?? Date.now();
 			return this.recordFromEntry(transient);
 		}
@@ -391,6 +397,8 @@ export class SessionCatalog {
 			if (patch.title !== undefined) nextEntry.title = patch.title;
 			if (patch.model !== undefined) nextEntry.model = patch.model;
 			if (patch.thinkingLevel !== undefined) nextEntry.thinkingLevel = patch.thinkingLevel;
+			if (patch.titleLocked !== undefined) nextEntry.titleLocked = patch.titleLocked;
+			if (patch.titleGenerated !== undefined) nextEntry.titleGenerated = patch.titleGenerated;
 			nextEntry.updatedAt = patch.updatedAt ?? Date.now();
 			return { value: cloneEntry(nextEntry), changed: true };
 		});
@@ -532,7 +540,10 @@ export class SessionCatalog {
 					byOrigin.set(originKey, entry);
 					changed = true;
 				} else {
-					const nextTitle = summary.name || entry.title;
+					// 手动改名（titleLocked）/已生成自动标题（titleGenerated）的条目，
+					// 扫描器推断名（首条消息截断）不得回写覆盖，否则自动标题会被打回占位名。
+					const titleProtected = entry.titleLocked || entry.titleGenerated;
+					const nextTitle = titleProtected ? entry.title : (summary.name || entry.title);
 					if (
 						entry.projectId !== projectId ||
 						entry.filePath !== summary.filePath ||
@@ -602,7 +613,10 @@ export class SessionCatalog {
 		return {
 			id: entry.id,
 			projectId: entry.projectId,
-			title: summary?.name || entry.title,
+			// 已锁定/已生成自动标题的条目以 catalog 内标题为准，扫描推断名只作兜底
+			title: (entry.titleLocked || entry.titleGenerated
+				? entry.title
+				: summary?.name) || entry.title,
 			noSession: entry.noSession,
 			source: summary?.source ?? entry.source,
 			environment: summary ? getSessionEnvironment(summary) : entry.environment,
@@ -619,6 +633,7 @@ export class SessionCatalog {
 			status: entry.status,
 			model: entry.model ? { ...entry.model } : undefined,
 			thinkingLevel: entry.thinkingLevel,
+			titleLocked: entry.titleLocked,
 			createdAt: entry.createdAt,
 			updatedAt: summary?.updatedAt ?? entry.updatedAt,
 			wsl: summary?.wsl,

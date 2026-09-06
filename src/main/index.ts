@@ -196,6 +196,12 @@ import {
 	SessionCatalog,
 	canAttachRuntimeMetadata,
 } from "./sessions/SessionCatalog";
+import { SessionPreferenceStore } from "./sessions/SessionPreferenceStore";
+import {
+	buildTitleSource,
+	SessionTitleGenerator,
+} from "./sessions/SessionTitleGenerator";
+import { runOneShotPrompt } from "./pi/OneShotPrompt";
 import {
 	SessionRuntimeCoordinator,
 	type SessionRuntimeBinding,
@@ -293,6 +299,7 @@ let projectStore: ProjectStore;
 let fileSystemService: FileSystemService;
 let sessionScanner: SessionScanner;
 let sessionCatalog: SessionCatalog;
+let sessionPreferences: SessionPreferenceStore;
 let sessionRuntimeCoordinator: SessionRuntimeCoordinator;
 let codexSessionImporter: CodexSessionImporter;
 let claudeSessionImporter: ClaudeSessionImporter;
@@ -2261,6 +2268,7 @@ function registerIpc() {
 		openCodeSessionImporter,
 		appLogger,
 		terminalManager,
+		sessionPreferences,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
 		getMainWindow: () => mainWindow,
 		emitSessionRuntimeEvent,
@@ -2757,12 +2765,75 @@ app.whenReady().then(async () => {
 		},
 	);
 	await sessionCatalog.load();
+	// 会话界面偏好（置顶等）：独立于 pi 会话文件；加载后清理已失效条目（外部删除的会话）
+	sessionPreferences = new SessionPreferenceStore(
+		join(app.getPath("userData"), "session-preferences.json"),
+	);
+	await sessionPreferences.load();
+	await sessionPreferences.prune(sessionCatalog.listEntries());
 	sessionRuntimeCoordinator = new SessionRuntimeCoordinator(
 		sessionCatalog,
 		agentManager,
 		sendAgentPromptWithIntegrations,
 		appLogger,
 	);
+
+	// ── 自动中文会话标题（NeoNext 1-c）──
+	// agent_settled 后为「可自动命名」的会话生成 ≤15 字中文标题：
+	// 默认占位标题（新会话/未命名）与扫描器推断的首条消息截断名都可覆盖；
+	// 手动改名（titleLocked）与已生成过的（titleGenerated）不碰，避免每轮重复调用模型。
+	const sessionTitleGenerator = new SessionTitleGenerator({
+		generate: async (sessionId, prompt) => {
+			const entry = sessionCatalog.get(sessionId);
+			const project = entry ? projectStore.get(entry.projectId) : undefined;
+			if (!entry || !project) throw new Error("Session project not found for title generation");
+			const settings = settingsStore.get();
+			// 优先复用 AI 提交摘要的模型配置；未配置时回退 pi 配置默认 provider/model
+			let model: { provider: string; modelId: string } | undefined;
+			const commitProvider = settings.gitCommitMessageProvider.trim();
+			const commitModel = settings.gitCommitMessageModel.trim();
+			if (commitProvider && commitModel) model = { provider: commitProvider, modelId: commitModel };
+			if (!model) {
+				const configSettings = (await configManager.getSettingsConfig()).parsed;
+				const provider = typeof configSettings?.defaultProvider === "string"
+					? configSettings.defaultProvider
+					: undefined;
+				const modelId = typeof configSettings?.defaultModel === "string"
+					? configSettings.defaultModel
+					: undefined;
+				if (provider && modelId) model = { provider, modelId };
+			}
+			if (!model) throw new Error("No model available for title generation");
+			return await runOneShotPrompt(
+				{ piLocator, settingsStore, log: appLogger },
+				{ cwd: project.path, model, prompt },
+			);
+		},
+		getSession: (sessionId) => {
+			const entry = sessionCatalog.get(sessionId);
+			return entry
+				? { canAutoTitle: !entry.titleLocked && !entry.titleGenerated }
+				: undefined;
+		},
+		saveTitle: async (sessionId, title) => {
+			// titleGenerated 置位：后续 agent_settled 不再重复触发生成
+			const updated = await sessionCatalog.update(sessionId, { title, titleGenerated: true });
+			// 侧栏标题由 catalog 驱动：推送刷新让渲染层以 scan:false 静默重拉（不触发扫描）
+			mainWindow?.webContents.send(ipcChannels.sessionsCatalogRefreshed, {
+				projectId: updated.projectId,
+			});
+		},
+		log: appLogger,
+	});
+	agentManager.addLocalEventListener((agentId, event) => {
+		if (!settingsStore.get().sessionAutoTitle) return;
+		if (!event || typeof event !== "object" || (event as { type?: unknown }).type !== "agent_settled") return;
+		const sessionId = sessionRuntimeCoordinator.getSessionId(agentId);
+		if (!sessionId) return;
+		const entry = sessionCatalog.get(sessionId);
+		if (!entry || entry.titleLocked || entry.titleGenerated) return;
+		void sessionTitleGenerator.request(sessionId, buildTitleSource(agentManager.getMessages(agentId)));
+	});
 	agentManager.onOutput((sourceChannel, payload) => {
 		if (sourceChannel === ipcChannels.agentsState && Array.isArray(payload)) {
 			for (const tab of payload) {

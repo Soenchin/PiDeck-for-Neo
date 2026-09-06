@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import { ChevronDown, Ellipsis, HatGlasses, Trash2 } from "lucide-react";
+import { ChevronDown, Ellipsis, HatGlasses, Pin, Trash2 } from "lucide-react";
 import type { AgentTab, Project, SessionRecord, SessionSummary } from "../../../../shared/types";
 import { collectDisplayedSessionIds, filterAgentsForSidebarDisplay, getProjectAgentSessionDisplay, sessionStatusDotClass, type ProjectChildItem } from "../../agentListDisplay";
 import { sessionRecordToSummary } from "../../atoms";
@@ -53,17 +53,20 @@ function formatPiSubagentName(session: SessionSummary) {
 /**
  * 复用 Tab 栏的状态点语义，并把点绑定到具体 Agent/历史会话行。
  * 没有 runtime 的历史记录传入 undefined，因此纯打开记录不会被误标成已启动。
+ * unread（NeoNext 1-b）：后台完成未读时 idle 蓝点变绿点，悬浮文案切到未读语义。
  */
-function renderRuntimeStatusDot(status?: string | null) {
-  const dotClass = sessionStatusDotClass(status);
+function renderRuntimeStatusDot(status?: string | null, unread?: boolean) {
+  const dotClass = sessionStatusDotClass(status, unread);
   if (!dotClass) return null;
-  const label = status === "idle"
-    ? t("app.statusIdle")
-    : status === "error"
-      ? t("app.statusError")
-      : status === "running" || status === "starting" || status === "pending" || status === "waiting"
-        ? t("app.statusRunning")
-        : undefined;
+  const label = unread && status === "idle"
+    ? t("sidebar.unreadReply")
+    : status === "idle"
+      ? t("app.statusIdle")
+      : status === "error"
+        ? t("app.statusError")
+        : status === "running" || status === "starting" || status === "pending" || status === "waiting"
+          ? t("app.statusRunning")
+          : undefined;
   return (
     <span
       className={cn(
@@ -319,8 +322,13 @@ export function SessionTree(props: {
             onDoubleClick={() => openSession(child.session.id, "permanent")}
             {...sessionDragProps(child.session.id)}
           >
-          {renderRuntimeStatusDot(runtimeSnapshot?.status)}
+          {renderRuntimeStatusDot(runtimeSnapshot?.status, props.controller.catalog.unreadSessionIds.has(child.session.id))}
           <div className="conversation-body min-w-0 flex-1 transition-[padding-right] @max-[255px]:group-hover/row:pr-7 @max-[255px]:group-focus-within/row:pr-7"><div className="conversation-title flex min-w-0 items-center gap-1.5">
+            {child.session.pinned && (
+              <span className="shrink-0 text-[color:var(--color-accent)]" title={t("sidebar.pinnedSession")}>
+                <Pin size={11} aria-hidden="true" />
+              </span>
+            )}
             {/* 历史会话（无运行态）文字降一级，与活跃 Agent/运行中会话形成层级差 */}
             <strong className={cn("min-w-0 flex-1 truncate", runtime ? "font-medium" : "font-normal text-muted-foreground/90")}>{child.session.name || t("common.untitled")}</strong>
             {child.session.source && child.session.source !== "pi" && <SessionSourceBadge source={child.session.source} />}

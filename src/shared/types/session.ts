@@ -85,6 +85,10 @@ export type SessionSummary = {
 	codexParentThreadId?: string;
 	codexAgentRole?: string;
 	codexAgentNickname?: string;
+	/** 置顶状态（PiDeck 界面偏好，不写入 pi 会话文件） */
+	pinned?: boolean;
+	/** 置顶时间戳，用于置顶会话之间的稳定排序 */
+	pinnedAt?: number;
 };
 
 /** PiDeck-owned session identity, independent from a running Pi process. */
@@ -119,6 +123,12 @@ export type SessionRecord = {
 	codexParentThreadId?: string;
 	codexAgentRole?: string;
 	codexAgentNickname?: string;
+	/** 置顶状态（PiDeck 界面偏好，不写入 pi 会话文件） */
+	pinned?: boolean;
+	/** 置顶时间戳，用于置顶会话之间的稳定排序 */
+	pinnedAt?: number;
+	/** 自动标题锁：用户手动改名后为 true，自动生成不得覆盖（NeoNext 1-c） */
+	titleLocked?: boolean;
 };
 
 export type CreateSessionDraftInput = {

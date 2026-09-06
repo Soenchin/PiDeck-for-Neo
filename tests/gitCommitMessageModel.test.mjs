@@ -39,11 +39,13 @@ test("Git summary selects the configured model while retaining the lightweight R
     "--no-prompt-templates",
     "--no-context-files",
     "--no-themes",
-    "--thinking",
   ]) {
     assert.match(gitIpc, new RegExp(`"${flag}"`));
   }
-  assert.match(gitIpc, /"--thinking",\s*"off"/);
+  // 回归（2026-09-06）：不强制 --thinking。写死 off 会让「始终思考」型模型
+  // （如 GLM 5.3 系列）直接 400（code 1210），摘要只会拿到空文本；
+  // 思考级别沿用 pi 配置的默认值。
+  assert.doesNotMatch(gitIpc, /"--thinking"/);
   assert.match(gitIpc, /provider\/model 变化时必须重启轻量进程/);
   assert.match(gitIpc, /if \(genProcess === childProcess\) stopGenProcess\(\)/);
 });

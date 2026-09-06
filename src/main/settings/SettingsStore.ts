@@ -142,6 +142,7 @@ Gitmoji 对应关系：
   webServiceEnabled: false,
   webServiceHost: "0.0.0.0",
   webServicePort: 8765,
+  sessionAutoTitle: true,
   rpcTimeout: 600_000,
   linkOpenMode: "external",
   workspaceContentOpenMode: "split",

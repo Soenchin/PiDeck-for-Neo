@@ -7,6 +7,7 @@ import {
   sessionCatalogLoadStateAtom,
   sessionIdsByProjectAtom,
   sessionRecordsAtom,
+  sessionUnreadIdsAtom,
   sidebarExpandedProjectIdsAtom,
   sidebarRuntimeAtom,
 } from "../atoms";
@@ -52,6 +53,8 @@ export type SidebarCatalog = {
   sessionsByProject: Readonly<Record<string, readonly SessionRecord[]>>;
   runtimeBySessionId: Readonly<Record<string, SidebarRuntimeSummary | undefined>>;
   catalogLoadStateByProject: Readonly<Record<string, { status: string } | undefined>>;
+  /** 后台完成未读的会话 id 集合（NeoNext 1-b，内存态，重启清空） */
+  unreadSessionIds: ReadonlySet<string>;
 };
 
 /** A terminal runtime no longer owns its Session and may safely be discarded. */
@@ -328,13 +331,15 @@ export function useSidebarController(options: {
       sessionIds.map((id) => sessionRecords[id]).filter((session): session is SessionRecord => Boolean(session)),
     ]),
   ), [sessionIdsByProject, sessionRecords]);
+  const sessionUnreadIds = useAtomValue(sessionUnreadIdsAtom);
   const catalog = useMemo<SidebarCatalog>(() => ({
     projects,
     agents,
     sessionsByProject,
     runtimeBySessionId: sessionRuntimeById,
     catalogLoadStateByProject: sessionCatalogLoadStateByProject,
-  }), [agents, projects, sessionCatalogLoadStateByProject, sessionRuntimeById, sessionsByProject]);
+    unreadSessionIds: sessionUnreadIds,
+  }), [agents, projects, sessionCatalogLoadStateByProject, sessionRuntimeById, sessionUnreadIds, sessionsByProject]);
 
   const setProjectExpanded = useCallback((projectId: string, forceExpand?: boolean) => {
     const previous = expandedProjectIdsRef.current;

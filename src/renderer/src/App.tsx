@@ -68,6 +68,7 @@ import { useProjectSync } from "./hooks/useProjectSync";
 import {
   agentInventoryAtom,
   applySessionRuntimeEventAtom,
+  clearSessionUnreadAtom,
   currentSessionAtom,
   currentSessionIdAtom,
   currentSessionMessagesAtom,
@@ -221,6 +222,7 @@ export function App() {
   const setSessionCatalogLoadState = useSetAtom(setSessionCatalogLoadStateAtom);
   const removeSessionState = useSetAtom(removeSessionStateAtom);
   const removeSessionComposerState = useSetAtom(removeSessionComposerStateAtom);
+  const clearSessionUnread = useSetAtom(clearSessionUnreadAtom);
   const currentSessionIdRef = useRef<string | undefined>(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
   const openSessionRequestRef = useRef(0);
@@ -496,6 +498,7 @@ export function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [expandedProjectsReady, setExpandedProjectsReady] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
+    sessionAutoTitle: true,
     useNativeTitleBar: true,
     showNativeMenu: false,
     sendShortcut: "enter-send",
@@ -1632,6 +1635,8 @@ export function App() {
   // 汇报聚焦会话给主进程：非聚焦会话收到 Ask 请求时触发桌面通知（Task 9）
   useEffect(() => {
     void api.sessions.setFocusedSession(currentSessionId).catch(() => undefined);
+    // 点开会话即视为已读：清除该会话的后台完成未读标记（NeoNext 1-b）
+    if (currentSessionId) clearSessionUnread(currentSessionId);
   }, [currentSessionId]);
 
 
@@ -2578,6 +2583,19 @@ export function App() {
         await unarchiveSidebarSession(archived.filePath, projectId);
       },
       listArchived: () => listArchivedSidebarSessions(),
+      setPinned: async (projectId, sessionId, pinned) => {
+        const record = getProjectSessionRecords(projectId).find((candidate) => candidate.id === sessionId);
+        if (!record?.filePath) return;
+        // 乐观更新本地记录：置顶列即时反馈；IPC 失败时用服务端 catalog 回退刷新
+        upsertSession({ ...record, pinned, pinnedAt: pinned ? Date.now() : undefined });
+        try {
+          await api.sessions.setPinned(sessionId, pinned);
+        } catch {
+          // 回退刷新必须走 useProjectSync 的规范 catalog 入口（sessionRefreshSafety 契约：
+          // 渲染层禁止直接调用 api.sessions.listCatalog）
+          void refreshProjectSessions(projectId, true).catch(() => undefined);
+        }
+      },
     },
     agents: {
       rename: rename.openAgentRename,

@@ -26,6 +26,7 @@ import type {
 } from "../../shared/types";
 import { parseSessionProcessEvents } from "../sessions/sessionProcessEvents";
 import { BackgroundScanCoordinator } from "../sessions/BackgroundScanCoordinator";
+import type { SessionPreferenceStore } from "../sessions/SessionPreferenceStore";
 
 /**
  * 已扫描过项目的集合（模块级）：决定 catalogList 走「首次同步扫描」还是
@@ -71,6 +72,8 @@ export type SessionIpcDeps = {
 	openCodeSessionImporter: OpenCodeSessionImporter;
 	appLogger: AppLogger;
 	terminalManager: TerminalSessionManager;
+	/** 会话界面偏好（置顶等）：独立于 pi 会话文件，按规范化文件路径键控 */
+	sessionPreferences: SessionPreferenceStore;
 	mainCopy: (key: string, params?: Record<string, string | number>) => string;
 	getMainWindow: () => BrowserWindow | null;
 	emitSessionRuntimeEvent: (agentId: string, channel: string, payload: unknown) => boolean;
@@ -114,6 +117,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		openCodeSessionImporter,
 		appLogger,
 		terminalManager,
+		sessionPreferences,
 		mainCopy,
 		getMainWindow,
 		emitSessionRuntimeEvent,
@@ -126,6 +130,15 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		exportCatalogSessionHtml,
 		replaceAgentSession,
 	} = deps;
+
+	// 置顶偏好附加：catalog 记录出 IPC 边界前带上 pinned/pinnedAt。
+	// 无 filePath 的 draft/匿名会话没有稳定文件身份，不参与置顶。
+	const attachPinnedToRecords = (records: SessionRecord[]): SessionRecord[] =>
+		records.map((record) => {
+			if (!record.filePath) return record;
+			const preference = sessionPreferences.get(record.filePath, record.environment);
+			return preference ? { ...record, pinned: true, pinnedAt: preference.pinnedAt } : record;
+		});
 
 	ipcMain.handle(
 		ipcChannels.sessionsList,
@@ -179,13 +192,13 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 				.filter((record): record is SessionRecord => Boolean(record));
 
 			// 纯读路径：事件回调/订阅刷新专用，不再触发扫描（防止推送-拉取循环触发）
-			if (options?.scan === false) return cachedRecords;
+			if (options?.scan === false) return attachPinnedToRecords(cachedRecords);
 
 			// 首次访问该项目：缓存无数据可回显，同步扫描保证首次有结果；
 			// 之后转入「缓存先回显 + 后台扫描推送」模式。
 			if (!scannedProjects.has(projectId)) {
 				scannedProjects.add(projectId);
-				return runScanAndMerge();
+				return attachPinnedToRecords(await runScanAndMerge());
 			}
 
 			// 已有缓存：立即返回，后台扫描（去重+冷却）完成后推送 catalog-refreshed，
@@ -287,7 +300,11 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			const entry = sessionCatalog.get(sessionId);
 			if (!entry) throw new Error(mainCopy("session.notFound"));
 			const title = patch.title?.trim();
+			// 用户手动改名后永久锁定自动标题（NeoNext 1-c）：自动生成不得覆盖。
+			// 注意用 if 条件保持 TS 对 title 的 string 收窄，不能用 Boolean(title && …) 中转变量。
+			let manualRename = false;
 			if (title && title !== entry.title) {
+				manualRename = true;
 				const target = sessionRuntimeCoordinator.getTarget(sessionId);
 				if (target) {
 					const renamed = await sessionRuntimeCoordinator.renameRuntime(target, title);
@@ -301,10 +318,34 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					});
 				}
 			}
-			return sessionCatalog.update(sessionId, {
+			const updated = await sessionCatalog.update(sessionId, {
 				...patch,
 				title: title || undefined,
+				...(manualRename ? { titleLocked: true } : {}),
 			});
+			// 更新后回传置顶标记：渲染层 rename 用返回值覆盖本地记录，缺标记会丢置顶状态
+			const [withPinned] = attachPinnedToRecords([updated]);
+			return withPinned ?? updated;
+		},
+	);
+	ipcMain.handle(
+		ipcChannels.sessionsSetPinned,
+		async (_event, sessionId: unknown, pinned: unknown) => {
+			// 入参校验在边界：渲染层数据不可信
+			if (typeof sessionId !== "string" || !sessionId.trim()) {
+				throw new Error(mainCopy("session.notFound"));
+			}
+			if (typeof pinned !== "boolean") {
+				throw new Error("Invalid pinned flag");
+			}
+			const entry = sessionCatalog.get(sessionId);
+			// 只有带会话文件的会话可置顶：draft/匿名会话没有稳定文件身份
+			if (!entry?.filePath) {
+				throw new Error(mainCopy("session.pinUnsupported"));
+			}
+			const pinnedAt = await sessionPreferences.setPinned(entry.filePath, entry.environment, pinned);
+			void appLogger.info("session", pinned ? "Session pinned" : "Session unpinned", { sessionId });
+			return { sessionId, pinned, pinnedAt };
 		},
 	);
 	ipcMain.handle(
@@ -341,6 +382,8 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 					await sessionScanner.delete(entry.filePath);
 				}
 				await sessionCatalog.remove(sessionId);
+				// 同步清理界面偏好，避免 session-preferences.json 留下失效条目
+				if (entry.filePath) await sessionPreferences.remove(entry.filePath, entry.environment);
 				void appLogger.info("session", "Catalog session deleted", { sessionId, filePath: entry.filePath });
 				return true;
 			} catch (error) {
@@ -368,6 +411,8 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 			}
 			const archivedPath = await sessionScanner.archive(entry.filePath);
 			await sessionCatalog.remove(sessionId);
+			// 归档后 catalog 记录移除；偏好同步清理，恢复时按新记录重新置顶即可
+			if (entry.filePath) await sessionPreferences.remove(entry.filePath, entry.environment);
 			void appLogger.info("session", "Session archived", { sessionId, archivedPath });
 			return true;
 		},

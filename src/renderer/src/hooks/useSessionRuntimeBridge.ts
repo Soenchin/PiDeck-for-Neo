@@ -3,10 +3,13 @@ import { useStore } from "jotai";
 import type { AgentRuntimeState } from "../../../shared/types";
 import {
   applySessionRuntimeEventAtom,
+  currentSessionIdAtom,
+  markSessionsUnreadAtom,
   replaceSessionRuntimesAtom,
   sessionRuntimeByIdAtom,
 } from "../atoms";
 import { agentExitedAtom } from "../atoms/runtime-atoms";
+import { shouldMarkSessionUnread } from "../sessionUnread";
 import { desktopApi } from "../desktopApi";
 import { t } from "../i18n";
 import type { TranslationKey } from "../i18n/rendererCopy.zh-CN";
@@ -62,8 +65,26 @@ export function useSessionRuntimeBridge(callbacks: RuntimeBridgeCallbacks = {}):
       }
       const previousRuntime = store.get(sessionRuntimeByIdAtom)[event.sessionId];
       store.set(applySessionRuntimeEventAtom, event);
-      if (event.sourceChannel !== "agents:runtime-state") return;
+      // 未读标记（NeoNext 1-b）：同一 runtime 从 working 落定到 idle/error 且非聚焦会话。
+      // 必须放在 runtime-state 早退之前：agents:state 全量推送同样携带状态变化。
       const currentRuntime = store.get(sessionRuntimeByIdAtom)[event.sessionId];
+      if (
+        currentRuntime?.agentId === event.agentId &&
+        currentRuntime.runtimeGeneration === event.runtimeGeneration &&
+        shouldMarkSessionUnread({
+          sessionId: event.sessionId,
+          focusedSessionId: store.get(currentSessionIdAtom),
+          previousStatus:
+            previousRuntime?.agentId === event.agentId &&
+            previousRuntime.runtimeGeneration === event.runtimeGeneration
+              ? previousRuntime.status
+              : undefined,
+          nextStatus: currentRuntime.status,
+        })
+      ) {
+        store.set(markSessionsUnreadAtom, [event.sessionId]);
+      }
+      if (event.sourceChannel !== "agents:runtime-state") return;
       if (
         currentRuntime?.agentId !== event.agentId ||
         currentRuntime.runtimeGeneration !== event.runtimeGeneration ||

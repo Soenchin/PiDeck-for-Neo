@@ -702,3 +702,57 @@ test("parentSessionPath survives reload: getRecord/listEntries rebuild keeps the
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("scanner sync does not clobber generated or locked titles", async () => {
+  const { SessionCatalog } = loadCatalog();
+  const dir = await mkdtemp(join(tmpdir(), "pideck-catalog-title-guard-"));
+  const filePath = join(dir, "sessions.json");
+  try {
+    const catalog = new SessionCatalog(filePath);
+    await catalog.load();
+    // 首次扫描：推断名「你好」（首条消息截断）进入 catalog，复现竞速起点
+    const [first] = await catalog.mergeScanned("project-1", [summary({
+      filePath: "C:/sessions/example.jsonl",
+      id: "C:/sessions/example.jsonl",
+      name: "你好",
+    })]);
+    assert.equal(first.title, "你好");
+    // 生成器写回：模型标题 + titleGenerated 置位
+    await catalog.update(first.id, { title: "排查自动标题失效", titleGenerated: true });
+    // 再次扫描：推断名仍是「你好」，不得把生成标题打回
+    const [second] = await catalog.mergeScanned("project-1", [summary({
+      filePath: "C:/sessions/example.jsonl",
+      id: "C:/sessions/example.jsonl",
+      name: "你好",
+    })]);
+    assert.equal(second.title, "排查自动标题失效");
+    // 标记在 entry 上持久化（record 面向渲染层，不透出该字段）
+    assert.equal(catalog.get(second.id)?.titleGenerated, true);
+
+    // 手动改名（titleLocked）同样受扫描同步保护
+    await catalog.update(second.id, { title: "手动名字", titleLocked: true });
+    const [third] = await catalog.mergeScanned("project-1", [summary({
+      filePath: "C:/sessions/example.jsonl",
+      id: "C:/sessions/example.jsonl",
+      name: "你好",
+    })]);
+    assert.equal(third.title, "手动名字");
+    // 未生成且未锁定的条目仍跟随扫描推断名
+    const records = await catalog.mergeScanned("project-1", [summary({
+      filePath: "C:/sessions/other.jsonl",
+      id: "C:/sessions/other.jsonl",
+      name: "第一条消息截断",
+    })]);
+    const unlocked = records.find((record) => record.filePath?.toLowerCase() === "c:/sessions/other.jsonl");
+    assert.equal(unlocked?.title, "第一条消息截断");
+    const renamedRecords = await catalog.mergeScanned("project-1", [summary({
+      filePath: "C:/sessions/other.jsonl",
+      id: "C:/sessions/other.jsonl",
+      name: "改名后的推断名",
+    })]);
+    const renamedScan = renamedRecords.find((record) => record.filePath?.toLowerCase() === "c:/sessions/other.jsonl");
+    assert.equal(renamedScan?.title, "改名后的推断名");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

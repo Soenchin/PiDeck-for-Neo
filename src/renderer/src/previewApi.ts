@@ -78,6 +78,7 @@ const terminalDataListeners = new Set<(payload: TerminalDataEvent) => void>();
 const terminalExitListeners = new Set<(payload: TerminalExitEvent) => void>();
 
 let previewSettings: AppSettings = {
+	sessionAutoTitle: true,
 	useNativeTitleBar: true,
 	showNativeMenu: false,
 	sendShortcut: "enter-send",
@@ -374,6 +375,7 @@ export function createPreviewApi(): PiDesktopApi {
 				createdAt: now,
 				updatedAt: now,
 			}),
+			setPinned: async (sessionId) => ({ sessionId, pinned: false }),
 			deleteRecord: async () => true,
 			archiveRecord: async () => true,
 			unarchiveRecord: async () => true,
