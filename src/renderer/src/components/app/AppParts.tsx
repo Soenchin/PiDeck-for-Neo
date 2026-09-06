@@ -26,7 +26,7 @@ import type { PiInstallStatus, PiInstallExecResult } from "../../../../shared/ty
 export type { WorkspaceDrawerPanel as DrawerPanel } from "../../hooks/useWorkspacePanels";
 
 // Re-exports from leaf modules (A12 migration in progress)
-import { PiLogoCanvas } from "./PiLogoCanvas";
+import neonischAppMark from "../../assets/images/neonisch-app-mark.svg";
 import { Label } from "../../components/ui-shadcn/label";
 export { WorktreeCreateDialog } from "../sidebar/SidebarComponents";
 export { ComposerBottomBar, ModelPicker, PromptTemplatePicker, ThinkingPicker, ComposerModePicker, ExtensionWidgetCard } from "../session/ComposerComponents";
@@ -452,16 +452,20 @@ export {
 } from "../session/SurfaceComponents";
 export { TurnRow } from "../session/turn";
 
-// PiLogoCanvas — canvas-based animated pi logo (from upstream dev)
-export { PiLogoCanvas } from "./PiLogoCanvas";
-
-/** Brand lockup: pi 图标 + 全大写粗字标，沿用参考 Logo 的简洁无衬线视觉。 */
+/** Brand lockup: Logo A + NeoNisch 字标（NeoNisch Brand/Montserrat）；replayToken 驱动重播脉冲。 */
 export function BrandLockup(props: { replayToken?: number } = {}) {
 	return (
-		<div className="brand-lockup flex h-full min-w-0 items-center gap-2" aria-label="PiDeck">
-			<PiLogoCanvas size={28} autoPlay playOnClick replayToken={props.replayToken} />
+		<div className="brand-lockup flex h-full min-w-0 items-center gap-2" aria-label="NeoNisch">
+			{/* key 变化触发重挂载 → 脉冲动画重播（agent 启动/关闭业务反馈） */}
+			<img
+				key={props.replayToken}
+				src={neonischAppMark}
+				alt=""
+				draggable={false}
+				className="brand-mark size-[26px] shrink-0 animate-[brand-pulse_600ms_ease-out]"
+			/>
 			{/* 视觉变形只作用于字标本身，品牌语义仍由外层 aria-label 保留。 */}
-			<span className="brand-wordmark translate-x-0.5 truncate text-[18px] font-[PiDeckDepartureMono] font-normal uppercase leading-none text-zinc-950 dark:text-white" aria-hidden="true">PiDeck</span>
+			<span className="brand-wordmark translate-x-0.5 truncate text-[16px] font-semibold leading-none text-zinc-950 dark:text-white" aria-hidden="true">NeoNisch</span>
 		</div>
 	);
 }

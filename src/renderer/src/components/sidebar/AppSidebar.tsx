@@ -18,6 +18,8 @@ interface AppSidebarProps {
   branchByProject: Record<string, string | null>;
   creatingWorktree: boolean;
   isLanWeb: boolean;
+  /** 品牌重播令牌：agent 启动/关闭时递增，驱动品牌标记脉冲（NeoNext Batch 2） */
+  brandReplayToken?: number;
   onOpenConfig: () => void;
   onOpenFeedback: () => void;
   onOpenHomepage: () => void;
@@ -62,7 +64,7 @@ export function AppSidebar(props: AppSidebarProps) {
       chrome={<>
         <div className="list-toolbar flex h-10 shrink-0 items-center gap-1 border-b border-border/40 pr-2.5 pl-[max(0.625rem,var(--traffic-lights-width,0px))]">
           <div className="app-badge flex min-w-0 flex-1 items-center">
-            <BrandLockup />
+            <BrandLockup replayToken={props.brandReplayToken} />
           </div>
           <Button
             type="button"

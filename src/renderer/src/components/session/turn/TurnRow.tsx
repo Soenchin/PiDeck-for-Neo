@@ -5,6 +5,7 @@ import type { ImageContent } from "../../../../../shared/types";
 import { liveTextStreamingBySessionAtom, newTurnCollapseTickBySessionIdAtomFamily } from "../../../atoms/session-atoms";
 import { turnFlowSettingsAtom } from "../../../atoms/app-ui-atoms";
 import { t } from "../../../i18n";
+import neonischAppMark from "../../../assets/images/neonisch-app-mark.svg";
 import { Button } from "../../ui-shadcn/button";
 import { Collapsible, CollapsibleContent } from "../../ui-shadcn/collapsible";
 import { formatDuration, formatTime, stripAnsi, stripThinkingTags } from "../TimelineFormat";
@@ -252,7 +253,7 @@ export const TurnRow = memo(
 				    时间用 text-body（14px）。耗时不放行头——回复生成时用户视线在底部，
 				    统一显示在 turn 尾部（见底部耗时行），不用翻回开头看跑了多久。 */}
 				<div className="mb-1 inline-flex items-center gap-2 text-muted-foreground tabular-nums">
-					<span className="shrink-0 font-mono text-brand font-semibold leading-none text-foreground/80">pi</span>
+					<img src={neonischAppMark} alt="" draggable={false} className="size-[18px] shrink-0" />
 					<time className="shrink-0 font-mono text-body leading-none">{formatTime(run.endedAt)}</time>
 				</div>
 

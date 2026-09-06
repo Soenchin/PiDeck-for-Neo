@@ -138,7 +138,9 @@ test("window control hover uses solid hover surface", () => {
 });
 
 test("brand lockup is larger inside the 40px titlebar", () => {
-  assert.match(brand, /PiLogoCanvas size=\{28\}/);
+  // NeoNext Batch 2：品牌换 NeoNisch Logo A（内联资产导入）+ NeoNisch 字标，不再回退 Pi logo
+  assert.match(brand, /neonisch-app-mark\.svg/);
+  assert.match(brand, /NeoNisch<\/span>/);
   assert.match(sidebar, /list-toolbar flex h-10/);
   assert.doesNotMatch(sidebar, /list-toggle-native floating/);
 });

@@ -114,11 +114,15 @@ function dismissBootOverlay() {
     overlay.remove();
   };
 
-  overlay.classList.add("fade-out");
-  // 过渡结束后从 DOM 移除覆盖层，释放层级上下文。
-  overlay.addEventListener("transitionend", removeOverlay, { once: true });
-  // 兜底：某些环境下 transitionend 可能不触发。
-  window.setTimeout(removeOverlay, 700);
+  // NeoNisch 启动序列：先 is-ready（Logo A 白→薄荷绿渐变 + 微放大），过渡完成后再淡出移除。
+  overlay.classList.add("is-ready");
+  window.setTimeout(() => {
+    overlay.classList.add("fade-out");
+    // 过渡结束后从 DOM 移除覆盖层，释放层级上下文。
+    overlay.addEventListener("transitionend", removeOverlay, { once: true });
+    // 兜底：某些环境下 transitionend 可能不触发。
+    window.setTimeout(removeOverlay, 700);
+  }, 460);
 }
 
 /**

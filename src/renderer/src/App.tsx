@@ -233,7 +233,7 @@ export function App() {
 
   // 项目的 git worktree 列表：{ parentId -> WorktreeEntry[] }
   const [pendingAgents, setPendingAgents] = useState<PendingAgentTab[]>([]);
-  /** 侧栏 π logo 重播令牌：agent 启动（含历史会话）/关闭时递增，驱动 BrandLockup 动画 */
+  /** 品牌重播令牌：agent 启动（含历史会话）/关闭时递增，驱动 BrandLockup 脉冲反馈 */
   const [brandLogoReplayToken, setBrandLogoReplayToken] = useState(0);
   const [activeProjectId, setActiveProjectId] = useState<string>();
   const activeProjectIdRef = useRef<string | undefined>(activeProjectId);
@@ -1640,10 +1640,25 @@ export function App() {
   }, [currentSessionId]);
 
 
-  // 侧栏 π logo 业务反馈：新建/历史会话启动/关闭 agent 时重播拼装动画。
+  // 品牌业务反馈（NeoNext Batch 2）：agent 启动（含历史会话）/关闭时重播品牌脉冲。
+  // 旧拼装动画的调用点在 session-first 重构中丢失；用 agent 集合差分重建触发时机。
   const triggerBrandLogoReplay = useCallback(() => {
     setBrandLogoReplayToken((token) => token + 1);
   }, []);
+
+  const agentIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const next = new Set(agents.map((agent) => agent.id));
+    let membershipChanged = false;
+    for (const id of next) {
+      if (!agentIdsRef.current.has(id)) membershipChanged = true;
+    }
+    for (const id of agentIdsRef.current) {
+      if (!next.has(id)) membershipChanged = true;
+    }
+    agentIdsRef.current = next;
+    if (membershipChanged) triggerBrandLogoReplay();
+  }, [agents, triggerBrandLogoReplay]);
 
   // 已删除内置 goal 完成检测。
 
@@ -2638,6 +2653,7 @@ export function App() {
     <AppSidebar
       listCollapsed={listCollapsed}
       toggleListCollapsed={toggleListCollapsed}
+      brandReplayToken={brandLogoReplayToken}
       actions={sidebarActions}
       currentProjectId={activeProjectId}
       currentSessionId={currentSessionId}

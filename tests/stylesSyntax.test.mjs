@@ -20,20 +20,12 @@ test("renderer stylesheet has no nested style rules", async () => {
   );
 });
 
-test("sidebar canvas logo keeps the main dev dimensions", async () => {
+test("brand lockup uses the NeoNisch brand font and mark", async () => {
   const stylesheet = readRendererStyles();
-  const root = postcss.parse(stylesheet);
-  const rule = root.nodes.find(
-    (node) => node.type === "rule" && node.selector === ".pi-logo-canvas",
-  );
-
-  assert.ok(rule, "sidebar canvas logo rule must exist");
-  const declarations = Object.fromEntries(
-    rule.nodes.filter((node) => node.type === "decl").map((node) => [node.prop, node.value]),
-  );
-  assert.equal(declarations.width, "34px");
-  assert.equal(declarations.height, "34px");
-  assert.equal(declarations["image-rendering"], "pixelated");
+  assert.match(stylesheet, /@font-face[\s\S]*?"NeoNisch Brand"[\s\S]*?Montserrat-SemiBold\.otf/);
+  assert.match(stylesheet, /@keyframes brand-pulse/);
+  // Pi 画布 logo 已被 Logo A 取代：canvas 规则随组件一并移除
+  assert.doesNotMatch(stylesheet, /\.pi-logo-canvas\b/);
 });
 
 test("renderer stylesheet passes the real Vite CSS pipeline", async () => {
