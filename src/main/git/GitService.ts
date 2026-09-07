@@ -4,7 +4,7 @@ import { lstat, open, readlink, realpath, unlink } from "node:fs/promises";
 import { promisify } from "node:util";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { trashPath } from "../fs/trash";
-import type { GitBranchInfo, CommitDetail, CommitEntry, GitRef, BranchDiffResult, GitChangedFile, GitFileStatus, GitCommitFileDiff, GitResourceGroupType, GitWorkspaceFileDiff, GitAheadBehind } from "../../shared/types";
+import type { GitBranchInfo, CommitDetail, CommitEntry, GitRef, BranchDiffResult, GitChangedFile, GitFileStatus, GitCommitFileDiff, GitResourceGroupType, GitWorkspaceFileDiff, GitAheadBehind, GitRemoteInfo } from "../../shared/types";
 import { GitStatus } from "../../shared/types";
 import type { GitResource, GitResourceGroups } from "../../shared/types";
 
@@ -97,9 +97,13 @@ export class GitService {
 			// 获取当前分支和所有本地分支（不包含远程分支）。
 			// 显式设置 maxBuffer 防止仓库分支数过多时 stdout 超过 1MB 默认上限而被截断。
 			const BRANCH_MAX_BUFFER = 10 * 1024 * 1024;
-			const [{ stdout: currentRaw }, { stdout: localRaw }] = await Promise.all([
+			const [{ stdout: currentRaw }, { stdout: localRaw }, { stdout: remoteRaw }] = await Promise.all([
 				execFileAsync("git", ["branch", "--show-current"], { cwd }),
 				execFileAsync("git", ["branch", "--format=%(refname:short)"], { cwd, maxBuffer: BRANCH_MAX_BUFFER }),
+				// 远端列表与分支同批获取，避免额外一次 IPC 往返；异常时降级为无远端
+				execFileAsync("git", ["remote", "-v"], { cwd, maxBuffer: BRANCH_MAX_BUFFER }).catch(
+					() => ({ stdout: "" }),
+				),
 			]);
 
 			const current = currentRaw.trim() || null;
@@ -113,7 +117,24 @@ export class GitService {
 				? [current, ...branches.filter((b) => b !== current)]
 				: branches;
 
-			return { current, branches: sorted };
+			// git remote -v 每行 "<name>\t<url> (fetch|push)"；按名称去重，fetch URL 优先
+			const remotes: GitRemoteInfo[] = [];
+			const remoteByName = new Map<string, GitRemoteInfo>();
+			for (const line of remoteRaw.split(/\r?\n/)) {
+				const match = line.match(/^(\S+)\t(\S+) \((fetch|push)\)$/);
+				if (!match) continue;
+				const [, name, url, kind] = match;
+				const existing = remoteByName.get(name);
+				if (!existing) {
+					const info: GitRemoteInfo = { name, url };
+					remoteByName.set(name, info);
+					remotes.push(info);
+				} else if (kind === "fetch") {
+					existing.url = url;
+				}
+			}
+
+			return { current, branches: sorted, remotes };
 		} catch {
 			// 非 Git 目录或未安装 git 时只返回空信息，UI 可以降级展示为 no git。
 			return { current: null, branches: [] };
@@ -824,6 +845,7 @@ export class GitService {
 			return {
 				ahead: parseInt(left ?? "0", 10) || 0,
 				behind: parseInt(right ?? "0", 10) || 0,
+				upstream,
 			};
 		} catch {
 			return null;

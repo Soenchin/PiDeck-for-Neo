@@ -337,6 +337,7 @@ export const zhCN = {
   "git.loadMore": "加载更多",
   "git.loadingMore": "正在加载…",
   "git.generateCommitMessage": "AI 生成提交摘要",
+  "git.remoteAheadBehind": "本地领先 {ahead} 个提交 / 落后 {behind} 个提交",
   "git.stageBeforeGenerateCommitMessage": "请先暂存更改后再生成提交摘要。",
   "git.generateCommitMessageFailed": "生成提交摘要失败",
   "git.generateCommitMessageProgress": "正在生成提交信息…",

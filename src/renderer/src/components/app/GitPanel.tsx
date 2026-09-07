@@ -101,6 +101,8 @@ type GitPanelProps = {
   commit: (projectId: string, message: string) => Promise<void>;
   branches: string[];
   currentBranch: string | null;
+  /** 远端列表（随 branches 同批返回）：展示在分支条下方 */
+  remotes?: Array<{ name: string; url: string }>;
   /** 切换分支 */
   onSwitchBranch?: (branch: string) => void;
   /** 创建新分支 */
@@ -1209,6 +1211,22 @@ export function GitPanel(props: GitPanelProps) {
           document.body,
         )}
       </div>
+      {props.remotes && props.remotes.length > 0 && (
+        <div className="flex shrink-0 flex-col gap-0.5 border-b border-border/40 bg-background px-2 py-1">
+          {props.remotes.map((remote) => (
+            <div key={remote.name} className="flex min-w-0 items-center gap-1.5 text-[11px] leading-4 text-muted-foreground">
+              <span className="shrink-0 font-medium">{remote.name}</span>
+              <span className="min-w-0 flex-1 truncate" title={remote.url}>{remote.url}</span>
+              {/* ahead/behind 属于当前分支的上游（如 origin/main）：按远端名归属到对应行 */}
+              {aheadBehind != null && aheadBehind.upstream?.startsWith(`${remote.name}/`) && (
+                <span className="shrink-0 tabular-nums">
+                  {t("git.remoteAheadBehind", { ahead: aheadBehind.ahead, behind: aheadBehind.behind })}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <section
         id="git-pane-changes"
         className={`flex min-h-0 flex-[0_0_auto] flex-col overflow-hidden border-b border-[var(--git-panel-border)] bg-[var(--git-panel-bg)] last:border-b-0${paneState.open.changes ? " h-[calc(var(--git-pane-height)+32px)]" : " h-[32px]"}`}

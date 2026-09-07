@@ -336,6 +336,7 @@ export const enUS: Record<TranslationKey, string> = {
   "git.loadMore": "Load more",
   "git.loadingMore": "Loading…",
   "git.generateCommitMessage": "Generate commit message with AI",
+  "git.remoteAheadBehind": "Local is {ahead} ahead / {behind} behind",
   "git.stageBeforeGenerateCommitMessage": "Stage your changes first before generating a commit message.",
   "git.generateCommitMessageFailed": "Failed to generate commit message",
   "git.generateCommitMessageProgress": "Generating commit message…",

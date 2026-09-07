@@ -1,8 +1,16 @@
 // ── Git 基础类型 ──────────────────────────────────────────────────────
 
+/** 单个 git remote（git remote -v 按名称去重；fetch URL 优先于 push URL）。 */
+export type GitRemoteInfo = {
+	name: string;
+	url: string;
+};
+
 export type GitBranchInfo = {
 	current: string | null;
 	branches: string[];
+	/** 远端列表：随 getBranches 同批返回，避免额外 IPC 往返 */
+	remotes?: GitRemoteInfo[];
 };
 
 /** AI 生成提交摘要的结果：结构化错误码供渲染层区分“未配置/忙碌/超时”，避免透传 pi 英文错误。 */
@@ -143,6 +151,8 @@ export type GitAheadBehind = {
 	ahead: number;
 	/** 本地落后上游的提交数（pull 可拉入） */
 	behind: number;
+	/** 上游全名（如 "origin/main"）：供 UI 把计数归属到对应远端行 */
+	upstream?: string;
 };
 
 export type BranchDiffResult = {
