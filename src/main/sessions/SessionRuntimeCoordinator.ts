@@ -259,6 +259,9 @@ export class SessionRuntimeCoordinator {
 	listRuntimes(): SessionRuntimeInfo[] {
 		const result: SessionRuntimeInfo[] = [];
 		for (const [sessionId, agentId] of this.agentIdBySession) {
+			// Automation owns a real transient session/runtime for lifecycle safety,
+			// but it must never become a ghost card in the user's session UI.
+			if (this.catalog.get(sessionId)?.automation) continue;
 			const tab = this.agents.list().find((candidate) => candidate.id === agentId);
 			if (!tab || isTerminalAgent(tab)) continue;
 			result.push(this.runtimeInfo(sessionId, tab));

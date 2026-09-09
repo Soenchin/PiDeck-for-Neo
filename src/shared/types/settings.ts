@@ -22,6 +22,52 @@ export type AppSkinId =
 export type AppLanguageMode = "system" | "zh-CN" | "en-US" | "pseudo";
 export type LinkOpenMode = "external" | "internal";
 
+/** 每日总结始终需要人工审核；确认后才允许临时 Agent 请求写入权威记忆。 */
+export type DailySummarySettings = {
+	enabled: boolean;
+	/** 本地触发时间，格式 HH:mm。 */
+	time: string;
+	/** 当天用户消息少于此轮数时跳过，避免只有闲聊也弹审核。 */
+	minTurns: number;
+};
+
+export type AutonomousModeSettings = {
+	/** 默认关闭：只有主人显式开启才会在离开电脑后运行。 */
+	enabled: boolean;
+	/** Windows 系统空闲阈值；产品默认 40 分钟。 */
+	idleThresholdMinutes: number;
+	/** 留空时使用 pi 的默认模型。 */
+	model?: { provider: string; modelId: string };
+	activities: {
+		search: boolean;
+		games: boolean;
+	};
+};
+
+export type AutomationSettings = {
+	dailySummary: DailySummarySettings;
+	autonomousMode: AutonomousModeSettings;
+};
+
+export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
+	dailySummary: {
+		enabled: false,
+		time: "23:55",
+		minTurns: 5,
+	},
+	autonomousMode: {
+		enabled: false,
+		idleThresholdMinutes: 40,
+		activities: { search: true, games: true },
+	},
+};
+
+export type DailySummaryReviewRequest = {
+	id: string;
+	summary: string;
+	date: string;
+};
+
 /** 主进程枚举出的可用于手机访问 Web 服务的局域网入口。 */
 export type WebNetworkAddress = {
 	address: string;
@@ -135,6 +181,8 @@ export type StartupWindowMode =
 	webServicePort: number;
 	/** 首轮回答结束后自动生成中文会话标题（NeoNext 迁移；手动改名永久锁定） */
 	sessionAutoTitle: boolean;
+	/** 定时每日总结与空闲自主活动。两个功能默认关闭，见 DEFAULT_AUTOMATION_SETTINGS。 */
+	automation: AutomationSettings;
 	/** 本地生成的匿名安装标识，不包含账号、路径或机器名 */
 	telemetryInstallId?: string;
 	/** 最近一次发送 app_heartbeat 的本地日期，格式 YYYY-MM-DD */

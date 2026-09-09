@@ -1,5 +1,6 @@
 import type { PiDesktopApi } from "../../preload";
 import {
+	DEFAULT_AUTOMATION_SETTINGS,
 	createDefaultExternalEditorSettings,
 	createDefaultSecurityConfig,
 } from "../../shared/types";
@@ -122,6 +123,7 @@ let previewSettings: AppSettings = {
 	webServiceEnabled: false,
 	webServiceHost: "0.0.0.0",
 	webServicePort: 8765,
+	automation: DEFAULT_AUTOMATION_SETTINGS,
 	rpcTimeout: 600_000,
 	linkOpenMode: "external",
 	workspaceContentOpenMode: "split",
@@ -839,6 +841,11 @@ export function createPreviewApi(): PiDesktopApi {
 			search: async () => ({ query: "", total: 0, items: [] }),
 			detail: async () => null,
 			install: async (slug) => ({ success: true, slug, installDir: "", message: "Preview install" }),
+		},
+		automation: {
+			onDailySummaryReview: noop,
+			confirmDailySummary: async () => true,
+			cancelDailySummary: async () => true,
 		},
 		settings: {
 			get: async (): Promise<AppSettings> => ({ ...previewSettings }),

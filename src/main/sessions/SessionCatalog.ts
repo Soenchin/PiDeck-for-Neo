@@ -31,6 +31,8 @@ export type SessionCatalogEntry = {
 	title: string;
 	/** Anonymous entries are in-memory only and are never written to session-catalog.json. */
 	noSession?: boolean;
+	/** PiDeck-owned background automation runtime; intentionally hidden from user session UI. */
+	automation?: boolean;
 	source: SessionSource;
 	environment: SessionEnvironment;
 	filePath?: string;
@@ -217,6 +219,8 @@ export class SessionCatalog {
 		projectId: string;
 		title: string;
 		environment: SessionEnvironment;
+		/** 自动化临时会话有完整 runtime 身份，但不应出现在用户会话树。 */
+		automation?: boolean;
 		model?: { provider: string; modelId: string };
 		thinkingLevel?: string;
 	}): SessionRecord {
@@ -227,6 +231,7 @@ export class SessionCatalog {
 			projectId: input.projectId,
 			title: input.title,
 			noSession: true,
+			automation: input.automation === true,
 			source: "pi",
 			environment: input.environment,
 			wslDistro: input.environment === "wsl" ? this.identityContext.wslDistro : undefined,

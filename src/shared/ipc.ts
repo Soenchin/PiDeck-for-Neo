@@ -101,6 +101,10 @@ export const ipcChannels = {
 	settingsRestartWebService: "settings:restart-web-service",
 	settingsTestPiProxy: "settings:test-pi-proxy",
 	settingsApplyWindow: "settings:apply-window",
+	/** 主进程 → 渲染：每日总结候选已生成，等待用户编辑审核。 */
+	dailySummaryReview: "automation:daily-summary-review",
+	dailySummaryConfirm: "automation:daily-summary-confirm",
+	dailySummaryCancel: "automation:daily-summary-cancel",
 	skillsList: "skills:list",
 	skillsCreate: "skills:create",
 	skillsToggle: "skills:toggle",

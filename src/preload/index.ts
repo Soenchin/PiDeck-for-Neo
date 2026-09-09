@@ -1055,6 +1055,14 @@ const api = {
 		onApplyWindow: (callback: (settings: AppSettings) => void) =>
 			subscribe(ipcChannels.settingsApplyWindow, callback),
 	},
+	automation: {
+		onDailySummaryReview: (callback: (request: import("../shared/types").DailySummaryReviewRequest) => void) =>
+			subscribe(ipcChannels.dailySummaryReview, callback),
+		confirmDailySummary: (id: string, summary: string) =>
+			ipcRenderer.invoke(ipcChannels.dailySummaryConfirm, id, summary) as Promise<boolean>,
+		cancelDailySummary: (id: string) =>
+			ipcRenderer.invoke(ipcChannels.dailySummaryCancel, id) as Promise<boolean>,
+	},
 	security: {
 		getConfig: () =>
 			ipcRenderer.invoke(ipcChannels.securityGetConfig) as Promise<SecurityConfig>,

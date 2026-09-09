@@ -61,6 +61,8 @@ import {
   resolveChatSessionBootstrap,
 } from "./utils/chatSessionBootstrap";
 import { detectRendererPlatform } from "./lib/detectRendererPlatform";
+import { DEFAULT_AUTOMATION_SETTINGS } from "../../shared/types";
+import { AutomationReviewOverlay } from "./components/overlays/AutomationReviewOverlay";
 
 import { usePiUpdate } from "./hooks/usePiUpdate";
 import { useAppUpdateController } from "./hooks/useAppUpdateController";
@@ -499,6 +501,7 @@ export function App() {
   const [expandedProjectsReady, setExpandedProjectsReady] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
     sessionAutoTitle: true,
+    automation: DEFAULT_AUTOMATION_SETTINGS,
     useNativeTitleBar: true,
     showNativeMenu: false,
     sendShortcut: "enter-send",
@@ -3482,6 +3485,7 @@ export function App() {
 
     {/* 并行问询结果弹框（AskPanel）：独立匿名会话的结果展示，根级渲染 */}
     <AskPanelOverlay />
+    <AutomationReviewOverlay />
 
     {/* 外部编辑器选择气泡 */}
     <ExternalEditorOverlay

@@ -9,6 +9,7 @@ import {
 	Eye,
 	ChartColumnBig,
 	Activity,
+	Bot,
 	MessageSquare,
 	X,
 } from "lucide-react";
@@ -55,8 +56,9 @@ const StorageTab = lazy(() => import("./settings/SettingsStorageTab").then((m) =
 const ProcessMetricsTab = lazy(() => import("./settings/ProcessMetricsTab").then((m) => ({ default: m.ProcessMetricsTab })));
 const UsageStatsTab = lazy(() => import("./settings/UsageStatsTab").then((m) => ({ default: m.UsageStatsTab })));
 const VisionBridgeSettingsTab = lazy(() => import("./settings/VisionBridgeSettingsTab").then((m) => ({ default: m.VisionBridgeSettingsTab })));
+const AutomationTab = lazy(() => import("./settings/AutomationTab").then((m) => ({ default: m.AutomationTab })));
 
-type SettingsTabId = "common" | "appearance" | "proxy" | "dev" | "im" | "pet" | "storage" | "usage" | "process" | "vision";
+type SettingsTabId = "common" | "appearance" | "proxy" | "dev" | "im" | "pet" | "storage" | "usage" | "process" | "vision" | "automation";
 
 // 注意：修改 SettingsTabId 枚举时需同步更新 SETTINGS_TAB_IDS 校验数组
 
@@ -65,7 +67,7 @@ const SETTINGS_LAST_TAB_KEY = "pideck-settings-last-tab";
 
 /** 全部合法 tab id，用于校验持久化值（避免版本更新后残留旧值导致无高亮）。 */
 const SETTINGS_TAB_IDS: readonly SettingsTabId[] = [
-	"common", "appearance", "proxy", "dev", "im", "pet", "storage", "usage", "process", "vision",
+	"common", "appearance", "proxy", "dev", "im", "pet", "storage", "usage", "process", "vision", "automation",
 ];
 
 /**
@@ -368,6 +370,11 @@ function SettingsModalContent(props: SettingsModalProps) {
 			label: t("settings.tabs.vision"),
 			icon: <Eye size={16} />,
 		},
+		{
+			id: "automation",
+			label: t("settings.tabs.automation"),
+			icon: <Bot size={16} />,
+		},
 	];
 
 	const hasDirtyChanges = dirtyFields.size > 0;
@@ -543,6 +550,14 @@ function SettingsModalContent(props: SettingsModalProps) {
 						<TabsContent value="usage" className="settings-panel min-w-0">
 							<Suspense fallback={<SettingsTabLoading />}>
 							<UsageStatsTab />
+							</Suspense>
+						</TabsContent>
+					)}
+					{/* ── 自动化 tab：默认全部关闭；总结审核与空闲活动的节流规则在主进程 domain。 */}
+					{activeTab === "automation" && (
+						<TabsContent value="automation" className="settings-panel min-w-0">
+							<Suspense fallback={<SettingsTabLoading />}>
+								<AutomationTab draft={draftSettings} updateDraft={updateDraft} isDirty={isDirty} />
 							</Suspense>
 						</TabsContent>
 					)}

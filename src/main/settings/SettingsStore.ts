@@ -2,7 +2,11 @@ import { app, BrowserWindow, Menu } from "electron";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createDefaultExternalEditorSettings, type AppSettings } from "../../shared/types";
+import {
+	DEFAULT_AUTOMATION_SETTINGS,
+	createDefaultExternalEditorSettings,
+	type AppSettings,
+} from "../../shared/types";
 import { getAppLogger } from "../logging/sharedLogger";
 
 /** 桌面端 settings.json（userData），与 pi agent settings 分离 */
@@ -143,6 +147,8 @@ Gitmoji 对应关系：
   webServiceHost: "0.0.0.0",
   webServicePort: 8765,
   sessionAutoTitle: true,
+  // 自动化默认关闭；每日总结必须经审核，自主活动必须通过空闲/回归节流。
+  automation: DEFAULT_AUTOMATION_SETTINGS,
   rpcTimeout: 600_000,
   linkOpenMode: "external",
   workspaceContentOpenMode: "split",
@@ -201,6 +207,24 @@ export class SettingsStore {
       this.settings = {
         ...defaultSettings,
         ...parsed,
+        // automation 是嵌套设置。旧 settings.json 可能只存一个子字段，必须深合并，
+        // 否则升级后会丢掉默认的活动开关/空闲阈值。
+        automation: {
+          ...DEFAULT_AUTOMATION_SETTINGS,
+          ...(parsed.automation ?? {}),
+          dailySummary: {
+            ...DEFAULT_AUTOMATION_SETTINGS.dailySummary,
+            ...(parsed.automation?.dailySummary ?? {}),
+          },
+          autonomousMode: {
+            ...DEFAULT_AUTOMATION_SETTINGS.autonomousMode,
+            ...(parsed.automation?.autonomousMode ?? {}),
+            activities: {
+              ...DEFAULT_AUTOMATION_SETTINGS.autonomousMode.activities,
+              ...(parsed.automation?.autonomousMode?.activities ?? {}),
+            },
+          },
+        },
         externalEditors: {
           ...createDefaultExternalEditorSettings(),
           ...(parsed.externalEditors ?? {}),
