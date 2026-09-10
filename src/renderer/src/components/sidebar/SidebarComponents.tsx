@@ -500,6 +500,9 @@ export function SessionContextMenu(props: {
 	actionLoading?: "copy" | "export" | null;
 	onClose: () => void;
 	onRename: () => void;
+	/** 当前会话置顶状态（有 onTogglePinned 才渲染置顶菜单项） */
+	pinned?: boolean;
+	onTogglePinned?: () => void;
 	onExport: () => void;
 	onCopySession: () => void;
 	onCopySessionFilePath: () => void;
@@ -522,6 +525,11 @@ export function SessionContextMenu(props: {
 	return (
 		<MenuShell x={props.menu.x} y={props.menu.y} onClose={props.onClose}>
 			<DropdownMenuItem disabled={busy} onSelect={props.onRename}>{t("common.rename")}</DropdownMenuItem>
+			{props.onTogglePinned && (
+				<DropdownMenuItem disabled={busy} onSelect={props.onTogglePinned}>
+					{props.pinned ? t("menu.unpinSession") : t("menu.pinSession")}
+				</DropdownMenuItem>
+			)}
 			<DropdownMenuItem disabled={busy} onSelect={props.onCopySession}>
 				{props.actionLoading === "copy" && <span className="mini-loader" />}
 				{props.actionLoading === "copy" ? t("menu.copying") : t("menu.copySession")}

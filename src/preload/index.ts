@@ -399,6 +399,13 @@ const api = {
 			) as Promise<SessionRecord>,
 		deleteRecord: (sessionId: string) =>
 			ipcRenderer.invoke(ipcChannels.sessionsCatalogDelete, sessionId) as Promise<boolean>,
+		/** 置顶/取消置顶会话（PiDeck 界面偏好，不写入 pi 会话文件）；返回最新 pinnedAt */
+		setPinned: (sessionId: string, pinned: boolean) =>
+			ipcRenderer.invoke(
+				ipcChannels.sessionsSetPinned,
+				sessionId,
+				pinned,
+			) as Promise<{ sessionId: string; pinned: boolean; pinnedAt?: number }>,
 		/** 归档会话（移入 .pideck-archive/ 并从目录移除）；运行中的会话会抛错 */
 		archiveRecord: (sessionId: string) =>
 			ipcRenderer.invoke(ipcChannels.sessionsCatalogArchive, sessionId) as Promise<boolean>,
@@ -1047,6 +1054,14 @@ const api = {
 			) as Promise<PiProxyTestResult>,
 		onApplyWindow: (callback: (settings: AppSettings) => void) =>
 			subscribe(ipcChannels.settingsApplyWindow, callback),
+	},
+	automation: {
+		onDailySummaryReview: (callback: (request: import("../shared/types").DailySummaryReviewRequest) => void) =>
+			subscribe(ipcChannels.dailySummaryReview, callback),
+		confirmDailySummary: (id: string, summary: string) =>
+			ipcRenderer.invoke(ipcChannels.dailySummaryConfirm, id, summary) as Promise<boolean>,
+		cancelDailySummary: (id: string) =>
+			ipcRenderer.invoke(ipcChannels.dailySummaryCancel, id) as Promise<boolean>,
 	},
 	security: {
 		getConfig: () =>

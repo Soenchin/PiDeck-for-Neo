@@ -196,6 +196,12 @@ import {
 	SessionCatalog,
 	canAttachRuntimeMetadata,
 } from "./sessions/SessionCatalog";
+import { SessionPreferenceStore } from "./sessions/SessionPreferenceStore";
+import {
+	buildTitleSource,
+	SessionTitleGenerator,
+} from "./sessions/SessionTitleGenerator";
+import { runOneShotPrompt } from "./pi/OneShotPrompt";
 import {
 	SessionRuntimeCoordinator,
 	type SessionRuntimeBinding,
@@ -205,6 +211,9 @@ import { CodexSessionImporter } from "./sessions/CodexSessionImporter";
 import { ClaudeSessionImporter } from "./sessions/ClaudeSessionImporter";
 import { OpenCodeSessionImporter } from "./sessions/OpenCodeSessionImporter";
 import { SettingsStore } from "./settings/SettingsStore";
+import { AutomationScheduler } from "./automation/AutomationScheduler";
+import { DailySummaryReviewBroker } from "./automation/DailySummaryReviewBroker";
+import type { AutomationRuntime, AutomationRuntimeFactory } from "./automation/AutomationRuntime";
 import { SecurityStore } from "./security/SecurityStore";
 import { applyDesktopProxy } from "./settings/DesktopProxy";
 import { GitService } from "./git/GitService";
@@ -237,6 +246,7 @@ import { ImageGenService } from "./imagegen/ImageGenService";
 import { VisionBridgeConfigManager } from "./settings/visionBridgeConfig";
 import { registerSessionIpc, scheduleCatalogBackgroundScan } from "./ipc/sessionIpc";
 import { registerSystemIpc } from "./ipc/systemIpc";
+import { registerAutomationIpc } from "./ipc/automationIpc";
 import { fetchModelList, getCachedModelList, refreshModelList } from "./pi/modelListCache";
 import { ModelSpecsStore } from "./pi/modelSpecsStore";
 import { registerFilesIpc } from "./ipc/filesIpc";
@@ -293,6 +303,7 @@ let projectStore: ProjectStore;
 let fileSystemService: FileSystemService;
 let sessionScanner: SessionScanner;
 let sessionCatalog: SessionCatalog;
+let sessionPreferences: SessionPreferenceStore;
 let sessionRuntimeCoordinator: SessionRuntimeCoordinator;
 let codexSessionImporter: CodexSessionImporter;
 let claudeSessionImporter: ClaudeSessionImporter;
@@ -318,6 +329,9 @@ let rpcLogger: RpcLogger;
 let memoryProfileHandle: MemoryProfileHandle | null = null;
 let feishuBridge: FeishuBridge | null = null;
 let usageStatsService: UsageStatsService | null = null;
+let automationScheduler: AutomationScheduler | null = null;
+/** Review promises survive renderer reload: did-finish-load replays every pending candidate. */
+let dailySummaryReviewBroker: DailySummaryReviewBroker | null = null;
 
 
 function sendSessionRuntimeEnvelope(event: SessionRuntimeEvent): void {
@@ -334,6 +348,29 @@ function emitSessionRuntimeEvent(
 ): boolean {
 	const runtimeBinding = sessionRuntimeCoordinator.getRuntimeBinding(agentId);
 	if (!runtimeBinding) return false;
+	// Automation has a real runtime for safety but no renderer projection. Forwarding
+	// its stream would manufacture hidden-session atom state and defeat its memory bound.
+	if (sessionCatalog.get(runtimeBinding.sessionId)?.automation) {
+		sessionRuntimeCoordinator.observeRuntimeEvent({
+			kind: "event",
+			sessionId: runtimeBinding.sessionId,
+			agentId,
+			runtimeGeneration: runtimeBinding.runtimeGeneration,
+			sourceChannel,
+			payload,
+		});
+		// A crashed hidden runtime has no task finally-path to clean it up. Remove the
+		// transient catalog identity here, but do not emit a renderer detach for a
+		// session that was deliberately never projected into the UI.
+		const tab = payload && typeof payload === "object" && !Array.isArray(payload)
+			? payload as Partial<AgentTab>
+			: undefined;
+		if (tab?.noSession && tab.status === "closed") {
+			sessionRuntimeCoordinator.unbindTerminalAgent(agentId);
+			sessionCatalog.removeTransient(runtimeBinding.sessionId);
+		}
+		return true;
+	}
 	const event: SessionRuntimeEvent = {
 		kind: "event",
 		sessionId: runtimeBinding.sessionId,
@@ -393,6 +430,92 @@ function discardAnonymousSession(binding: SessionRuntimeBinding): void {
 	if (!sessionCatalog.get(binding.sessionId)?.noSession) return;
 	sessionCatalog.removeTransient(binding.sessionId);
 	emitSessionRuntimeDetach(binding);
+}
+
+/**
+ * Background jobs use a transient --no-session runtime but still bind it through the
+ * coordinator. This preserves sessionId + agentId + generation checks without putting
+ * automation in the user session tree or writing a pi history file.
+ */
+async function createAutomationRuntime(input: {
+	title: string;
+	model?: { provider: string; modelId: string };
+}): Promise<AutomationRuntime> {
+	const project = projectStore.get("builtin-chat");
+	if (!project) throw new Error("Builtin chat project is unavailable for automation");
+	const environment = settingsStore.get().wslEnabled ? "wsl" : "native";
+	const record = sessionCatalog.createAnonymous({
+		projectId: project.id,
+		title: input.title,
+		environment,
+		automation: true,
+		model: input.model,
+	});
+	let target: SessionRuntimeTarget | undefined;
+	try {
+		const tab = await agentManager.create({
+			projectId: project.id,
+			title: record.title,
+			deckSessionId: record.id,
+			environment,
+			source: "pi",
+			noSession: true,
+		});
+		const runtime = sessionRuntimeCoordinator.bindAnonymousRuntime(record.id, tab.id);
+		target = {
+			sessionId: runtime.sessionId,
+			agentId: runtime.agentId,
+			runtimeGeneration: runtime.runtimeGeneration,
+		};
+		if (input.model) {
+			const changed = await sessionRuntimeCoordinator.setRuntimeModel(
+				target,
+				input.model.provider,
+				input.model.modelId,
+			);
+			if (!changed.ok) throw new Error(changed.error.debugDetails ?? changed.error.code);
+		}
+		return {
+			target,
+			send: async (prompt) => {
+				const result = await sessionRuntimeCoordinator.send({
+					...prompt,
+					sessionId: target!.sessionId,
+					requestId: randomUUID(),
+				});
+				if (!result.accepted) throw new Error(result.error);
+			},
+			waitForSettled: () => waitForAutomationRuntime(target!),
+			getMessages: () => agentManager.getMessages(target!.agentId),
+			stop: async () => {
+				const current = target;
+				if (!current) return;
+				await sessionRuntimeCoordinator.abortRuntime(current).catch(() => undefined);
+				await sessionRuntimeCoordinator.stopRuntime(current).catch(() => undefined);
+				discardAnonymousSession(current);
+				target = undefined;
+			},
+		};
+	} catch (error) {
+		if (target) await sessionRuntimeCoordinator.stopRuntime(target).catch(() => undefined);
+		sessionCatalog.removeTransient(record.id);
+		throw error;
+	}
+}
+
+async function waitForAutomationRuntime(target: SessionRuntimeTarget): Promise<void> {
+	const deadline = Date.now() + 15 * 60 * 1_000;
+	while (Date.now() < deadline) {
+		const current = sessionRuntimeCoordinator.getTarget(target.sessionId);
+		if (!current || current.agentId !== target.agentId || current.runtimeGeneration !== target.runtimeGeneration) {
+			throw new Error("Automation runtime changed or stopped");
+		}
+		const tab = agentManager.list().find((candidate) => candidate.id === target.agentId);
+		if (!tab || tab.status === "closed" || tab.status === "error") throw new Error("Automation runtime failed");
+		if (tab.status === "idle") return;
+		await new Promise<void>((resolve) => setTimeout(resolve, 500));
+	}
+	throw new Error("Automation runtime timed out");
 }
 
 async function createAnonymousSession(
@@ -1569,6 +1692,7 @@ async function createWindow() {
 		mainWindow?.webContents.setZoomFactor(settingsStore.get().zoomFactor);
 		// 加载期排队的通知跳转目标补发一次（renderer 挂载后还会主动拉取，幂等兜底）
 		flushPendingFocusTargetOnLoad();
+		dailySummaryReviewBroker?.replay();
 	});
 	mainWindow.webContents.on(
 		"did-fail-load",
@@ -2225,6 +2349,7 @@ function registerIpc() {
 	});
 
 	registerScratchPadIpc({ appLogger });
+	if (dailySummaryReviewBroker) registerAutomationIpc(dailySummaryReviewBroker);
 
 	// 安全管理：配置读写 + 会话等级覆盖（SecurityStore 负责持久化与策略快照）
 	registerSecurityIpc({
@@ -2261,6 +2386,7 @@ function registerIpc() {
 		openCodeSessionImporter,
 		appLogger,
 		terminalManager,
+		sessionPreferences,
 		mainCopy: mainCopy as (key: string, params?: Record<string, string | number>) => string,
 		getMainWindow: () => mainWindow,
 		emitSessionRuntimeEvent,
@@ -2355,6 +2481,9 @@ function registerIpc() {
 		restartWebService: (settings) => webServiceManager.restart(settings),
 		reactToPetSettings: async (prev, next) => {
 			await petSystem?.reactToSettings(prev, next);
+		},
+		reloadAutomation: async (settings) => {
+			await automationScheduler?.reload(settings);
 		},
 		applyNativeThemeSource,
 		refreshTrayContextMenu,
@@ -2757,12 +2886,83 @@ app.whenReady().then(async () => {
 		},
 	);
 	await sessionCatalog.load();
+	// 会话界面偏好（置顶等）：独立于 pi 会话文件；加载后清理已失效条目（外部删除的会话）
+	sessionPreferences = new SessionPreferenceStore(
+		join(app.getPath("userData"), "session-preferences.json"),
+	);
+	await sessionPreferences.load();
+	await sessionPreferences.prune(sessionCatalog.listEntries());
 	sessionRuntimeCoordinator = new SessionRuntimeCoordinator(
 		sessionCatalog,
 		agentManager,
 		sendAgentPromptWithIntegrations,
 		appLogger,
 	);
+	dailySummaryReviewBroker = new DailySummaryReviewBroker(() => mainWindow);
+	automationScheduler = new AutomationScheduler(
+		sessionScanner,
+		{ create: createAutomationRuntime } satisfies AutomationRuntimeFactory,
+		(request) => dailySummaryReviewBroker!.request(request),
+	);
+	await automationScheduler.start(settingsStore.get());
+
+	// ── 自动中文会话标题（NeoNext 1-c）──
+	// agent_settled 后为「可自动命名」的会话生成 ≤15 字中文标题：
+	// 默认占位标题（新会话/未命名）与扫描器推断的首条消息截断名都可覆盖；
+	// 手动改名（titleLocked）与已生成过的（titleGenerated）不碰，避免每轮重复调用模型。
+	const sessionTitleGenerator = new SessionTitleGenerator({
+		generate: async (sessionId, prompt) => {
+			const entry = sessionCatalog.get(sessionId);
+			const project = entry ? projectStore.get(entry.projectId) : undefined;
+			if (!entry || !project) throw new Error("Session project not found for title generation");
+			const settings = settingsStore.get();
+			// 优先复用 AI 提交摘要的模型配置；未配置时回退 pi 配置默认 provider/model
+			let model: { provider: string; modelId: string } | undefined;
+			const commitProvider = settings.gitCommitMessageProvider.trim();
+			const commitModel = settings.gitCommitMessageModel.trim();
+			if (commitProvider && commitModel) model = { provider: commitProvider, modelId: commitModel };
+			if (!model) {
+				const configSettings = (await configManager.getSettingsConfig()).parsed;
+				const provider = typeof configSettings?.defaultProvider === "string"
+					? configSettings.defaultProvider
+					: undefined;
+				const modelId = typeof configSettings?.defaultModel === "string"
+					? configSettings.defaultModel
+					: undefined;
+				if (provider && modelId) model = { provider, modelId };
+			}
+			if (!model) throw new Error("No model available for title generation");
+			return await runOneShotPrompt(
+				{ piLocator, settingsStore, log: appLogger },
+				{ cwd: project.path, model, prompt },
+			);
+		},
+		getSession: (sessionId) => {
+			const entry = sessionCatalog.get(sessionId);
+			return entry
+				? { canAutoTitle: !entry.titleLocked && !entry.titleGenerated }
+				: undefined;
+		},
+		saveTitle: async (sessionId, title) => {
+			// titleGenerated 置位：后续 agent_settled 不再重复触发生成
+			const updated = await sessionCatalog.update(sessionId, { title, titleGenerated: true });
+			// 侧栏标题由 catalog 驱动：推送刷新让渲染层以 scan:false 静默重拉（不触发扫描）
+			mainWindow?.webContents.send(ipcChannels.sessionsCatalogRefreshed, {
+				projectId: updated.projectId,
+			});
+		},
+		log: appLogger,
+	});
+	agentManager.addLocalEventListener((agentId, event) => {
+		if (!settingsStore.get().sessionAutoTitle) return;
+		if (!event || typeof event !== "object" || (event as { type?: unknown }).type !== "agent_settled") return;
+		const sessionId = sessionRuntimeCoordinator.getSessionId(agentId);
+		if (!sessionId) return;
+		const entry = sessionCatalog.get(sessionId);
+		// Automation titles are internal diagnostics, never user-visible session titles.
+		if (!entry || entry.automation || entry.titleLocked || entry.titleGenerated) return;
+		void sessionTitleGenerator.request(sessionId, buildTitleSource(agentManager.getMessages(agentId)));
+	});
 	agentManager.onOutput((sourceChannel, payload) => {
 		if (sourceChannel === ipcChannels.agentsState && Array.isArray(payload)) {
 			for (const tab of payload) {
@@ -3022,6 +3222,8 @@ app.on("before-quit", () => {
 	tray = null;
 	void webServiceManager?.stop();
 	terminalManager?.closeAll();
+	void automationScheduler?.stop("shutdown");
+	dailySummaryReviewBroker?.cancelAll();
 	agentManager?.stopAll();
 	petSystem?.stop();
 	petSystem = null;

@@ -119,6 +119,7 @@ export function DrawerSurface(props: DrawerSurfaceProps) {
                 commit={git.gitApi.commit}
                 branches={git.gitInfo.branches}
                 currentBranch={git.gitInfo.current}
+                remotes={git.gitInfo.remotes}
                 onSwitchBranch={git.switchBranch}
                 onCreateBranch={git.createBranch}
                 cherryPick={git.gitApi.cherryPick}

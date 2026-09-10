@@ -411,28 +411,19 @@ function formatCompact(value?: number | null) {
 }
 
 export function LogoMark({ size = 32 }: { size?: number } = {}) {
-	// size 默认 32（错误页/小型场景）；起始页/引导页传 56 放大品牌存在感
+	// size 默认 32（错误页/小型场景）；起始页/引导页传 56 放大品牌存在感。
+	// 透明底白色单色 Logo A（与启动画面 mono 层同源几何），不加底色盒；浅色主题自动切墨色。
 	return (
-		<div
-			className="logo-mark relative grid place-items-center overflow-hidden rounded-md bg-black text-white shadow-sm ring-1 ring-white/15"
-			style={{ width: size, height: size }}
-			aria-label={t("app.logoLabel")}
-		>
-			{/* 使用独立渐变而不是 currentColor，让 LogoMark 在浅色/深色主题下都保持黑底白标的品牌对比。 */}
-			<svg viewBox="140 140 520 520" width={Math.round(size * 0.5625)} height={Math.round(size * 0.5625)} aria-hidden="true">
-				<defs>
-					<linearGradient id="logo-mark-silver" x1="0.2" y1="0" x2="0.8" y2="1">
-						<stop stopColor="#ffffff" />
-						<stop offset="0.5" stopColor="#f4f4f5" />
-						<stop offset="1" stopColor="#a7a8ab" />
-					</linearGradient>
-				</defs>
+		<div className="logo-mark relative grid place-items-center" style={{ width: size, height: size }} aria-label={t("app.logoLabel")}>
+			<svg viewBox="-60 -60 120 120" width={size} height={size} aria-hidden="true">
 				<path
-					fill="url(#logo-mark-silver)"
+					className="fill-zinc-950 dark:fill-white"
 					fillRule="evenodd"
-					d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"
+					d="M-48 22 L-28 -20 L-18 -52 L0 -18 L18 -52 L28 -20 L48 22 L0 52 Z
+					   M0 -38 L20 -2 L0 34 L-20 -2 Z
+					   M0 -30 L13 -4 L0 24 L-13 -4 Z
+					   M9 0 A9 9 0 1 1 -9 0 A9 9 0 1 1 9 0 Z"
 				/>
-				<path fill="url(#logo-mark-silver)" d="M517.36 400H634.72V634.72H517.36Z" />
 			</svg>
 		</div>
 	);

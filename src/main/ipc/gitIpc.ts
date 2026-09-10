@@ -89,7 +89,7 @@ async function ensureGenProcess(
 		"--no-prompt-templates",
 		"--no-context-files",
 		"--no-themes",
-		"--thinking", "off",
+		// 注意：不传 --thinking。强制 off 会让「始终思考」型模型直接 400（同 OneShotPrompt，2026-09-06）。
 	]);
 
 	const childProcess = spawn(invocation.command, invocation.args, {

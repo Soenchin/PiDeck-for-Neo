@@ -3,20 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#030807" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob: pideck-bg: pideck-pet: https://cloudcache.tencent-cloud.com https://skillhub-1388575217.cos.accelerate.myqcloud.com; font-src 'self' data:; frame-src 'self' file: blob:; connect-src 'self' ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:* https://api.skillhub.cn"
     />
     <title></title>
     <style>
-      /* 启动画面：独立于 #root，React 挂载后淡出移除；不依赖外部字体/图片，保证首帧极快。 */
+      /* NeoNisch 启动画面：独立于 #root，React 挂载后 is-ready（白→薄荷绿渐变 + 微放大）→ fade-out 移除。
+         不依赖外部字体/图片（Logo A 为内联 SVG），保证首帧极快。 */
       /* 注意：reset 必须限定在 boot-overlay 内——全局 * 规则是无层级的，
          会压过 Tailwind @layer utilities 的所有间距工具类（#115 曾因此导致菜单/弹窗无内边距）。 */
       #boot-overlay, #boot-overlay * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body {
         height: 100%;
         overflow: hidden;
-        background: #eef0f3;
+        /* 深黑绿是 NeoNisch 的身份底色，启动画面不跟随系统深浅 */
+        background: #030807;
       }
 
       #boot-overlay {
@@ -28,15 +31,13 @@
         align-items: center;
         justify-content: center;
         gap: 18px;
-        background:
-          radial-gradient(1200px 600px at 50% 28%, rgba(15, 23, 42, 0.06), transparent 62%),
-          linear-gradient(180deg, #f7f8f5 0%, #f1f3ef 55%, #ecefeb 100%);
+        background: radial-gradient(circle at 50% 42%, #123b2e 0%, #071b16 42%, #030807 100%);
         transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
         will-change: opacity, transform;
       }
       #boot-overlay.fade-out {
         opacity: 0;
-        transform: scale(1.02);
+        transform: scale(1.16);
         pointer-events: none;
       }
 
@@ -50,34 +51,39 @@
 
       .boot-logo {
         position: relative;
-        width: 88px;
-        height: 88px;
-        display: grid;
-        place-items: center;
-        border-radius: 22px;
-        /* 与 build/icon.svg 品牌图标同一套黑渐变，保证启动画面与任务栏图标一致 */
-        background: linear-gradient(145deg, #1c1c1e, #000000);
-        box-shadow:
-          0 1px 0 rgba(255, 255, 255, 0.18) inset,
-          0 14px 32px rgba(15, 23, 42, 0.28),
-          0 2px 8px rgba(15, 23, 42, 0.08);
+        width: 84px;
+        height: 84px;
+        animation: boot-breathe 2.2s ease-in-out infinite;
       }
-      .boot-logo::after {
-        content: "";
+      /* Logo A 双层：白色单色呼吸 → is-ready 后切薄荷绿→翡翠绿渐变并微放大 */
+      .boot-logo-layer {
         position: absolute;
-        inset: -10px;
-        border-radius: 28px;
-        border: 1px solid rgba(15, 23, 42, 0.14);
-        animation: boot-ring 1.8s ease-out infinite;
-        pointer-events: none;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        transition: opacity 500ms cubic-bezier(0.22, 1, 0.36, 1);
       }
-      .boot-logo svg {
-        width: 48px;
-        height: 48px;
+      .boot-logo-mono {
+        opacity: 1;
+      }
+      .boot-logo-color {
+        opacity: 0;
+      }
+      #boot-overlay.is-ready .boot-logo-mono {
+        opacity: 0;
+      }
+      #boot-overlay.is-ready .boot-logo-color {
+        opacity: 1;
+      }
+      #boot-overlay.is-ready .boot-logo {
+        animation: none;
+        transform: scale(1.08);
+        transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
       }
 
       .boot-title {
-        color: #1f2937;
+        color: #e7f6ee;
         font-size: 20px;
         font-weight: 650;
         letter-spacing: 0.01em;
@@ -85,7 +91,7 @@
         line-height: 1.2;
       }
       .boot-subtitle {
-        color: #6b7280;
+        color: #7fa99a;
         font-size: 13px;
         font-weight: 500;
         letter-spacing: 0.02em;
@@ -97,7 +103,7 @@
         width: 120px;
         height: 3px;
         border-radius: 999px;
-        background: rgba(15, 23, 42, 0.08);
+        background: rgba(184, 255, 208, 0.12);
         overflow: hidden;
         animation: boot-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
       }
@@ -105,7 +111,7 @@
         width: 42%;
         height: 100%;
         border-radius: inherit;
-        background: linear-gradient(90deg, #3f3f46, #18181b);
+        background: linear-gradient(90deg, #b8ffd0, #1cb67a);
         animation: boot-progress 1.15s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       }
 
@@ -119,19 +125,9 @@
           transform: translateY(0);
         }
       }
-      @keyframes boot-ring {
-        0% {
-          opacity: 0.55;
-          transform: scale(0.92);
-        }
-        70% {
-          opacity: 0;
-          transform: scale(1.08);
-        }
-        100% {
-          opacity: 0;
-          transform: scale(1.08);
-        }
+      @keyframes boot-breathe {
+        0%, 100% { transform: scale(0.96); opacity: 0.88; }
+        50% { transform: scale(1); opacity: 1; }
       }
       @keyframes boot-progress {
         0% {
@@ -142,30 +138,10 @@
         }
       }
 
-      @media (prefers-color-scheme: dark) {
-        html, body {
-          background: #111315;
-        }
-        #boot-overlay {
-          background:
-            radial-gradient(1000px 520px at 50% 30%, rgba(255, 255, 255, 0.05), transparent 60%),
-            linear-gradient(180deg, #15181b 0%, #111315 100%);
-        }
-        .boot-title {
-          color: #f3f4f6;
-        }
-        .boot-subtitle {
-          color: #9ca3af;
-        }
-        .boot-progress {
-          background: rgba(255, 255, 255, 0.08);
-        }
-      }
-
       @media (prefers-reduced-motion: reduce) {
         .boot-brand,
         .boot-progress,
-        .boot-logo::after,
+        .boot-logo,
         .boot-progress-bar {
           animation: none !important;
         }
@@ -177,23 +153,44 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- 启动画面覆盖层：React 挂载后通过 fade-out 动画淡出再移除 -->
+    <!-- 启动画面覆盖层：is-ready（白→绿渐变）后 fade-out 淡出，再由 main.tsx 移除 -->
     <div id="boot-overlay">
       <div class="boot-brand">
         <div class="boot-logo">
-          <svg viewBox="140 140 520 520" aria-hidden="true">
+          <!--
+            NeoNisch Logo A（官方几何，同 neonisch_logo_A_white_transparent）
+            evenodd 复合路径：外轮廓实心 → 中菱形挖空 → 内菱形实心 → 圆心挖空
+          -->
+          <svg class="boot-logo-layer boot-logo-mono" viewBox="-60 -60 120 120" aria-hidden="true">
+            <path
+              fill="#FFFFFF"
+              fill-rule="evenodd"
+              d="M-48 22 L-28 -20 L-18 -52 L0 -18 L18 -52 L28 -20 L48 22 L0 52 Z
+                 M0 -38 L20 -2 L0 34 L-20 -2 Z
+                 M0 -30 L13 -4 L0 24 L-13 -4 Z
+                 M9 0 A9 9 0 1 1 -9 0 A9 9 0 1 1 9 0 Z"
+            />
+          </svg>
+          <svg class="boot-logo-layer boot-logo-color" viewBox="-60 -60 120 120" aria-hidden="true">
             <defs>
-              <linearGradient id="boot-logo-silver" x1="0.2" y1="0" x2="0.8" y2="1">
-                <stop stop-color="#ffffff"/>
-                <stop offset="0.5" stop-color="#f4f4f5"/>
-                <stop offset="1" stop-color="#a7a8ab"/>
+              <linearGradient id="neoBootGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#b8ffd0"/>
+                <stop offset="44%" stop-color="#67e7a0"/>
+                <stop offset="72%" stop-color="#1cb67a"/>
+                <stop offset="100%" stop-color="#08704e"/>
               </linearGradient>
             </defs>
-            <path fill="url(#boot-logo-silver)" fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/>
-            <path fill="url(#boot-logo-silver)" d="M517.36 400H634.72V634.72H517.36Z"/>
+            <path
+              fill="url(#neoBootGrad)"
+              fill-rule="evenodd"
+              d="M-48 22 L-28 -20 L-18 -52 L0 -18 L18 -52 L28 -20 L48 22 L0 52 Z
+                 M0 -38 L20 -2 L0 34 L-20 -2 Z
+                 M0 -30 L13 -4 L0 24 L-13 -4 Z
+                 M9 0 A9 9 0 1 1 -9 0 A9 9 0 1 1 9 0 Z"
+            />
           </svg>
         </div>
-        <strong class="boot-title">PiDeck</strong>
+        <strong class="boot-title">NeoNisch</strong>
         <span class="boot-subtitle">正在启动工作台…</span>
       </div>
       <div class="boot-progress" aria-hidden="true">

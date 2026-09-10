@@ -83,6 +83,8 @@ export type SystemIpcDeps = {
 	) => Promise<import("../wsl/WslPaths").WslEnvironment>;
 	/** React to settings changes for pet system */
 	reactToPetSettings?: (prev: AppSettings, next: AppSettings) => Promise<void>;
+	/** Reload automation timers after the nested automation settings are persisted. */
+	reloadAutomation?: (settings: AppSettings) => Promise<void>;
 	/** Session scanner WSL config */
 	configureSessionScannerWsl?: (env: import("../wsl/WslPaths").WslEnvironment) => Promise<void>;
 	clearSessionScannerWsl?: () => void;
@@ -148,6 +150,7 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		openExternalUrl: doOpenExternalUrl,
 		resolveWslEnvironment,
 		reactToPetSettings,
+		reloadAutomation,
 		configureSessionScannerWsl,
 		clearSessionScannerWsl,
 		setFeishuLocale,
@@ -695,6 +698,9 @@ export function registerSystemIpc(deps: SystemIpcDeps): void {
 		}
 		if ("zoomFactor" in patch) {
 			getMainWindow()?.webContents.setZoomFactor(settings.zoomFactor);
+		}
+		if ("automation" in patch && reloadAutomation) {
+			await reloadAutomation(settings);
 		}
 		if (
 			"webServiceEnabled" in patch ||

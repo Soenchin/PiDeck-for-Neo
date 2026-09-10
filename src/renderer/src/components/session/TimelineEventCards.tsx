@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Brain, Check, ChevronDown, ChevronUp, MessageCircle, Minimize, X } from "lucide-react";
 import type { ChatMessage } from "../../../../shared/types";
 import { t, translateI18nDescriptor } from "../../i18n";
@@ -461,6 +461,16 @@ export const ThinkingBlock = memo(
 /** 每种状态对应的轮播短语组（i18n；waiting 单条即不轮播）。 */
 type RespondingKind = "starting" | "executing" | "responding" | "waiting";
 
+/** 每次进入模型回应状态时洗牌一次，避免每轮都固定从同一句开始。 */
+function shufflePhrases(phrases: readonly string[]): string[] {
+	const shuffled = [...phrases];
+	for (let index = shuffled.length - 1; index > 0; index -= 1) {
+		const swapIndex = Math.floor(Math.random() * (index + 1));
+		[shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+	}
+	return shuffled;
+}
+
 const RESPONDING_PHRASES: Record<RespondingKind, string[]> = {
 	starting: [
 		t("agent.loading.starting1"),
@@ -476,6 +486,24 @@ const RESPONDING_PHRASES: Record<RespondingKind, string[]> = {
 		t("agent.loading.responding1"),
 		t("agent.loading.responding2"),
 		t("agent.loading.responding3"),
+		t("agent.loading.responding4"),
+		t("agent.loading.responding5"),
+		t("agent.loading.responding6"),
+		t("agent.loading.responding7"),
+		t("agent.loading.responding8"),
+		t("agent.loading.responding9"),
+		t("agent.loading.responding10"),
+		t("agent.loading.responding11"),
+		t("agent.loading.responding12"),
+		t("agent.loading.responding13"),
+		t("agent.loading.responding14"),
+		t("agent.loading.responding15"),
+		t("agent.loading.responding16"),
+		t("agent.loading.responding17"),
+		t("agent.loading.responding18"),
+		t("agent.loading.responding19"),
+		t("agent.loading.responding20"),
+		t("agent.loading.responding21"),
 	],
 	waiting: [t("agent.loading.waiting")],
 };
@@ -503,6 +531,13 @@ export function RespondingIndicator(props: {
 		kind = "waiting";
 	}
 
+	const phrases = useMemo(
+		() => kind === "responding"
+			? shufflePhrases(RESPONDING_PHRASES.responding)
+			: RESPONDING_PHRASES[kind],
+		[kind],
+	);
+
 	return (
 		<div className="responding-indicator" data-kind={kind}>
 			{/* key=kind：状态切换时从该组短语第一条重新轮播，避免旧组下标错位；
@@ -510,7 +545,7 @@ export function RespondingIndicator(props: {
 			   不用官方默认的 ascii 终端字符；文字放大到 text-base */}
 			<ReasoningText
 				key={kind}
-				phrases={RESPONDING_PHRASES[kind]}
+				phrases={phrases}
 				variant="swap"
 				interval={1800}
 				indicator={

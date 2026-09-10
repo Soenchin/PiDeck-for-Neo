@@ -61,6 +61,8 @@ import {
   resolveChatSessionBootstrap,
 } from "./utils/chatSessionBootstrap";
 import { detectRendererPlatform } from "./lib/detectRendererPlatform";
+import { DEFAULT_AUTOMATION_SETTINGS } from "../../shared/types";
+import { AutomationReviewOverlay } from "./components/overlays/AutomationReviewOverlay";
 
 import { usePiUpdate } from "./hooks/usePiUpdate";
 import { useAppUpdateController } from "./hooks/useAppUpdateController";
@@ -68,6 +70,7 @@ import { useProjectSync } from "./hooks/useProjectSync";
 import {
   agentInventoryAtom,
   applySessionRuntimeEventAtom,
+  clearSessionUnreadAtom,
   currentSessionAtom,
   currentSessionIdAtom,
   currentSessionMessagesAtom,
@@ -221,6 +224,7 @@ export function App() {
   const setSessionCatalogLoadState = useSetAtom(setSessionCatalogLoadStateAtom);
   const removeSessionState = useSetAtom(removeSessionStateAtom);
   const removeSessionComposerState = useSetAtom(removeSessionComposerStateAtom);
+  const clearSessionUnread = useSetAtom(clearSessionUnreadAtom);
   const currentSessionIdRef = useRef<string | undefined>(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
   const openSessionRequestRef = useRef(0);
@@ -231,7 +235,7 @@ export function App() {
 
   // 项目的 git worktree 列表：{ parentId -> WorktreeEntry[] }
   const [pendingAgents, setPendingAgents] = useState<PendingAgentTab[]>([]);
-  /** 侧栏 π logo 重播令牌：agent 启动（含历史会话）/关闭时递增，驱动 BrandLockup 动画 */
+  /** 品牌重播令牌：agent 启动（含历史会话）/关闭时递增，驱动 BrandLockup 脉冲反馈 */
   const [brandLogoReplayToken, setBrandLogoReplayToken] = useState(0);
   const [activeProjectId, setActiveProjectId] = useState<string>();
   const activeProjectIdRef = useRef<string | undefined>(activeProjectId);
@@ -496,6 +500,8 @@ export function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [expandedProjectsReady, setExpandedProjectsReady] = useState(false);
   const [settings, setSettings] = useState<AppSettings>({
+    sessionAutoTitle: true,
+    automation: DEFAULT_AUTOMATION_SETTINGS,
     useNativeTitleBar: true,
     showNativeMenu: false,
     sendShortcut: "enter-send",
@@ -1632,13 +1638,30 @@ export function App() {
   // 汇报聚焦会话给主进程：非聚焦会话收到 Ask 请求时触发桌面通知（Task 9）
   useEffect(() => {
     void api.sessions.setFocusedSession(currentSessionId).catch(() => undefined);
+    // 点开会话即视为已读：清除该会话的后台完成未读标记（NeoNext 1-b）
+    if (currentSessionId) clearSessionUnread(currentSessionId);
   }, [currentSessionId]);
 
 
-  // 侧栏 π logo 业务反馈：新建/历史会话启动/关闭 agent 时重播拼装动画。
+  // 品牌业务反馈（NeoNext Batch 2）：agent 启动（含历史会话）/关闭时重播品牌脉冲。
+  // 旧拼装动画的调用点在 session-first 重构中丢失；用 agent 集合差分重建触发时机。
   const triggerBrandLogoReplay = useCallback(() => {
     setBrandLogoReplayToken((token) => token + 1);
   }, []);
+
+  const agentIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const next = new Set(agents.map((agent) => agent.id));
+    let membershipChanged = false;
+    for (const id of next) {
+      if (!agentIdsRef.current.has(id)) membershipChanged = true;
+    }
+    for (const id of agentIdsRef.current) {
+      if (!next.has(id)) membershipChanged = true;
+    }
+    agentIdsRef.current = next;
+    if (membershipChanged) triggerBrandLogoReplay();
+  }, [agents, triggerBrandLogoReplay]);
 
   // 已删除内置 goal 完成检测。
 
@@ -2578,6 +2601,19 @@ export function App() {
         await unarchiveSidebarSession(archived.filePath, projectId);
       },
       listArchived: () => listArchivedSidebarSessions(),
+      setPinned: async (projectId, sessionId, pinned) => {
+        const record = getProjectSessionRecords(projectId).find((candidate) => candidate.id === sessionId);
+        if (!record?.filePath) return;
+        // 乐观更新本地记录：置顶列即时反馈；IPC 失败时用服务端 catalog 回退刷新
+        upsertSession({ ...record, pinned, pinnedAt: pinned ? Date.now() : undefined });
+        try {
+          await api.sessions.setPinned(sessionId, pinned);
+        } catch {
+          // 回退刷新必须走 useProjectSync 的规范 catalog 入口（sessionRefreshSafety 契约：
+          // 渲染层禁止直接调用 api.sessions.listCatalog）
+          void refreshProjectSessions(projectId, true).catch(() => undefined);
+        }
+      },
     },
     agents: {
       rename: rename.openAgentRename,
@@ -2620,6 +2656,7 @@ export function App() {
     <AppSidebar
       listCollapsed={listCollapsed}
       toggleListCollapsed={toggleListCollapsed}
+      brandReplayToken={brandLogoReplayToken}
       actions={sidebarActions}
       currentProjectId={activeProjectId}
       currentSessionId={currentSessionId}
@@ -3448,6 +3485,7 @@ export function App() {
 
     {/* 并行问询结果弹框（AskPanel）：独立匿名会话的结果展示，根级渲染 */}
     <AskPanelOverlay />
+    <AutomationReviewOverlay />
 
     {/* 外部编辑器选择气泡 */}
     <ExternalEditorOverlay

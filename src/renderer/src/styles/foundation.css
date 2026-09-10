@@ -1377,9 +1377,10 @@ select:focus-visible {
   min-width: 0;
 }
 .brand-wordmark {
-  /* 字重/字号由 BrandLockup Tailwind 控制；保留 class 兼容旧选择器 */
+  /* 字重/字号由 BrandLockup Tailwind 控制；字标固定用 NeoNisch 品牌字体（Montserrat SemiBold） */
   min-width: 0;
   white-space: nowrap;
+  font-family: "NeoNisch Brand", system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 .homepage-icon:hover {
   background: var(--color-bg-hover);
@@ -1393,39 +1394,36 @@ select:focus-visible {
 .logo-mark::before {
   display: none;
 }
+/* NeoNisch 品牌字体：仅用于标题栏/启动页品牌锁定块，不铺满正文（NeoNext Batch 2） */
+@font-face {
+  font-family: "NeoNisch Brand";
+  src: url("../assets/fonts/Montserrat-SemiBold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 品牌重播脉冲：agent 启动/关闭时 BrandLockup 标记重播一次（配合 key 重挂载） */
+@keyframes brand-pulse {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  35% {
+    transform: scale(1.14);
+    filter: brightness(1.25);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
 .brand-lockup {
   /* 布局由 BrandLockup Tailwind class 承担；保留 class 给 titlebar drag 选择器 */
   min-width: 0;
 }
 
-.pi-logo-canvas-stage {
-  all: unset;
-  box-sizing: border-box;
-  display: block;
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
-  line-height: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.pi-logo-canvas-stage:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.pi-logo-canvas {
-  display: block;
-  width: 34px;
-  height: 34px;
-  margin: 0;
-  padding: 0;
-  image-rendering: pixelated;
-}
 .logo-mark span {
   position: relative;
   transform: translateY(-1px);

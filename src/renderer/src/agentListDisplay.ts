@@ -4,16 +4,18 @@ import type { AgentTab, SessionEnvironment, SessionSummary } from "../../shared/
 /**
  * 会话/Agent 行的状态点 Tailwind bg 类（跨 Sidebar SessionTree 与会话 Tab 复用）。
  * 用户语义：idle=蓝、starting/运行中=黄、error=红；未启动（无 runtime）不显示点。
+ * unread（NeoNext 1-b）：后台完成未读时 idle 蓝点升级为绿点（完成了但没看过）；
+ * 其他状态不叠加未读色——运行中黄点/error 红点本身就是注意信号。
  * 该 helper 同时供会话 Tab 与侧栏会话行使用，确保蓝/黄/红状态语义一致。
  */
-export function sessionStatusDotClass(status?: string | null): string | undefined {
+export function sessionStatusDotClass(status?: string | null, unread?: boolean): string | undefined {
 	// detached 视为未真正运行：不渲染色点，与未启动会话一致
 	if (!status || status === "detached") return undefined;
 	switch (status) {
 		case "error":
 			return "bg-danger";
 		case "idle":
-			return "bg-info";
+			return unread ? "bg-success" : "bg-info";
 		// running / starting / pending 均反映“正在工作/等待”，同一黄色点
 		case "running":
 		case "starting":
@@ -417,10 +419,20 @@ export function getProjectAgentSessionDisplay({
 		}
 	}
 
-	children.sort((left, right) => right.sortAt - left.sortAt);
+	// 置顶会话优先：置顶组按 pinnedAt 倒序，其余按原 sortAt（最新在前）。
+	// 非会话行（无 session 的孤儿 Agent）不能置顶，rank 恒为 -1 排在置顶组之后。
+	const pinnedRank = (child: ProjectChildItem): number =>
+		child.type === "session" && child.session.pinned
+			? (child.session.pinnedAt ?? 0)
+			: -1;
+
+	children.sort((left, right) => pinnedRank(right) - pinnedRank(left) || right.sortAt - left.sortAt);
 
 	const limit = visibleChildCount ?? DEFAULT_VISIBLE_PROJECT_CHILD_LIMIT;
-	const visibleChildren = children.slice(0, limit);
+	// 置顶会话全部保留可见（可能超过 limit，不被「查看更多」截断），
+	// 普通会话用剩余名额补足；排序已把置顶排最前，slice 天然先取全部置顶。
+	const pinnedCount = children.filter((child) => pinnedRank(child) >= 0).length;
+	const visibleChildren = children.slice(0, Math.max(limit, pinnedCount));
 	return {
 		children,
 		visibleChildren,

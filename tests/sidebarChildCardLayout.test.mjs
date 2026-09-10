@@ -63,7 +63,8 @@ test("session status indicators stay on the concrete session row", () => {
   // Tab 与侧栏会话行共享蓝/黄/红状态点语义。
   assert.match(agentListDisplay, /export function sessionStatusDotClass/);
   assert.match(agentListDisplay, /case "idle"/);
-  assert.match(agentListDisplay, /return "bg-info"/);
+  // NeoNext 1-b：idle 未读时蓝点升级为绿点，其余状态不叠加未读色
+  assert.match(agentListDisplay, /return unread \? "bg-success" : "bg-info";/);
   assert.match(agentListDisplay, /case "error"/);
   assert.match(agentListDisplay, /return "bg-danger"/);
   assert.match(agentListDisplay, /case "running"/);
@@ -73,9 +74,9 @@ test("session status indicators stay on the concrete session row", () => {
   // SessionTree 不再渲染带文本的状态徽标；无 runtime 的历史记录不显示状态点。
   assert.doesNotMatch(sessionTree, /\/agent-status-indicator/);
   assert.match(sessionTree, /function renderRuntimeStatusDot/);
-  assert.match(sessionTree, /sessionStatusDotClass\(status\)/);
+  assert.match(sessionTree, /sessionStatusDotClass\(status, unread\)/);
   assert.match(sessionTree, /renderRuntimeStatusDot\(child\.agent\.status\)/);
-  assert.match(sessionTree, /renderRuntimeStatusDot\(runtimeSnapshot\?\.status\)/);
+  assert.match(sessionTree, /renderRuntimeStatusDot\(runtimeSnapshot\?\.status, props\.controller\.catalog\.unreadSessionIds/);
   // Tab 同样未启动不显示徽章，已启动按状态映射渲染（beui AnimatedBadge 替换裸圆点）。
   assert.match(tabBar, /function sessionStatusBadge\(/);
   assert.match(tabBar, /AnimatedBadge/);

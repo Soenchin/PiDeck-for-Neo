@@ -314,9 +314,9 @@ test("sidebar uses one persisted project accordion without duplicating current p
   assert.doesNotMatch(sessionTree, /\?\? \"bg-border\"/);
   assert.match(sessionTree, /function renderRuntimeStatusDot/);
   assert.match(sessionTree, /if \(!dotClass\) return null/);
-  assert.match(sessionTree, /sessionStatusDotClass\(status\)/);
+  assert.match(sessionTree, /sessionStatusDotClass\(status, unread\)/);
   assert.match(sessionTree, /renderRuntimeStatusDot\(child\.agent\.status\)/);
-  assert.match(sessionTree, /renderRuntimeStatusDot\(runtimeSnapshot\?\.status\)/);
+  assert.match(sessionTree, /renderRuntimeStatusDot\(runtimeSnapshot\?\.status, props\.controller\.catalog\.unreadSessionIds/);
   assert.match(sessionTree, /display\.visibleChildren\.map\(renderChild\)/);
   assert.match(sessionTree, /renderSubagents\(groupKey, child\.codexSubagents, child\.piSubagents\)/);
 });

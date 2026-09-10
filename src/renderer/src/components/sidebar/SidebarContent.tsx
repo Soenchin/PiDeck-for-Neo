@@ -58,6 +58,8 @@ export type SidebarActions = {
     archive: (projectId: string, session: SessionSummary) => Promise<void>;
     /** 恢复归档会话 */
     unarchive: (session: SessionSummary, projectId?: string) => Promise<void>;
+    /** 置顶/取消置顶会话（PiDeck 界面偏好，按会话文件键控） */
+    setPinned: (projectId: string, sessionId: string, pinned: boolean) => Promise<void>;
     /** 列出已归档会话 */
     listArchived: () => Promise<SessionSummary[]>;  };
   agents: {
@@ -282,6 +284,13 @@ export function SidebarContent(props: SidebarContentProps) {
           menu={{ x: menu.x, y: menu.y, session: menuSession }}
           onClose={controller.closeMenu}
           onRename={() => { actions.sessions.rename(menu.projectId, menuSession); controller.closeMenu(); }}
+          pinned={menuSession.pinned}
+          onTogglePinned={menuSession.filePath
+            ? () => {
+              void actions.sessions.setPinned(menu.projectId, menuSession.id, !menuSession.pinned);
+              controller.closeMenu();
+            }
+            : undefined}
           onExport={() => { void actions.sessions.export(menu.projectId, menuSession); controller.closeMenu(); }}
           onCopySession={() => { void actions.sessions.copy(menu.projectId, menuSession); controller.closeMenu(); }}
           onCopySessionFilePath={() => { void actions.sessions.copyPath(menuSession); controller.closeMenu(); }}
