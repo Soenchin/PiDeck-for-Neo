@@ -7,7 +7,9 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+const assistantResponseCaptureModule = loadTsCommonJs("src/main/pi/AssistantResponseCapture.ts");
 const nodeRequire = createRequire(import.meta.url);
 
 function extractMessageText(content) {
@@ -157,6 +159,7 @@ function loadAgentManagerModule() {
         };
       }
       if (specifier === "./LatestByKeyEmitter") return { LatestByKeyEmitter };
+      if (specifier === "./AssistantResponseCapture") return assistantResponseCaptureModule;
       if (specifier === "./streamGate") return streamGateModule.exports;
       if (specifier === "./cacheHitStats") return cacheHitStatsModule.exports;
       if (specifier === "../../shared/toolRuntimeState") return { updateActiveToolCalls: () => undefined };

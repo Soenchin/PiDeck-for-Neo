@@ -5,7 +5,9 @@ import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import vm from "node:vm";
+import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
+const assistantResponseCaptureModule = loadTsCommonJs("src/main/pi/AssistantResponseCapture.ts");
 const require = createRequire(import.meta.url);
 
 function transpile(filePath) {
@@ -142,6 +144,7 @@ function loadAgentManager() {
 				};
 			}
 			if (id === "./LatestByKeyEmitter") return { LatestByKeyEmitter };
+			if (id === "./AssistantResponseCapture") return assistantResponseCaptureModule;
 			if (id === "./streamGate") return streamGate;
 			if (id === "./cacheHitStats") return cacheHitStats;
 			if (id === "../../shared/toolRuntimeState") return { updateActiveToolCalls: () => new Map() };

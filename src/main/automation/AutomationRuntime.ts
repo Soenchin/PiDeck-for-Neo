@@ -1,4 +1,5 @@
-import type { ChatMessage, SendSessionPromptInput, SessionRuntimeTarget } from "../../shared/types";
+import type { SendSessionPromptInput, SessionRuntimeTarget } from "../../shared/types";
+import type { AssistantResponse } from "../pi/AssistantResponseCapture";
 
 /**
  * Automation sees only this narrow runtime capability. The main-process adapter owns
@@ -8,7 +9,7 @@ export type AutomationRuntime = {
 	target: SessionRuntimeTarget;
 	send: (input: Omit<SendSessionPromptInput, "sessionId" | "requestId">) => Promise<void>;
 	waitForSettled: () => Promise<void>;
-	getMessages: () => ChatMessage[];
+	getAssistantResponse: () => AssistantResponse | undefined;
 	stop: () => Promise<void>;
 };
 

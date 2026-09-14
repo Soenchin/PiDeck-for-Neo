@@ -844,6 +844,8 @@ export function createPreviewApi(): PiDesktopApi {
 		},
 		automation: {
 			onDailySummaryReview: noop,
+			onDailySummaryFailed: noop,
+			runDailySummaryNow: async () => ({ started: false, reason: "disabled" }),
 			confirmDailySummary: async () => true,
 			cancelDailySummary: async () => true,
 		},

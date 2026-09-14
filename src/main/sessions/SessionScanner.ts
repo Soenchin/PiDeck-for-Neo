@@ -954,7 +954,15 @@ export class SessionScanner {
         const content = this.extractText(message.content).trim();
         if (!content) continue;
         if (message.role !== "user" && message.role !== "assistant") continue;
-        messages.push({ role: String(message.role), content, timestamp: Number(entry.ts ?? entry.timestamp ?? Date.now()) });
+        // pi JSONL 的外层时间是 ISO 字符串，旧版 ts / message.timestamp 则可能为毫秒数。
+        // 不把缺失/无效时间冒充今天，否则每日总结会误收旧消息。
+        const value = entry.ts ?? entry.timestamp ?? message.timestamp;
+        const timestamp = typeof value === "number"
+          ? value
+          : typeof value === "string" && value.trim()
+            ? (Number.isFinite(Number(value)) ? Number(value) : Date.parse(value))
+            : Number.NaN;
+        messages.push({ role: String(message.role), content, timestamp });
       } catch {
         // 单行解析失败跳过；大量失败说明 JSONL 结构异常，双写日志文件便于离线排查
         void getAppLogger()?.warn("session", "Skipped unparseable JSONL line", { filePath });

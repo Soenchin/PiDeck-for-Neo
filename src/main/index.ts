@@ -452,6 +452,7 @@ async function createAutomationRuntime(input: {
 		model: input.model,
 	});
 	let target: SessionRuntimeTarget | undefined;
+	let responseReader: ReturnType<AgentManager["trackAssistantResponse"]> | undefined;
 	try {
 		const tab = await agentManager.create({
 			projectId: project.id,
@@ -467,6 +468,7 @@ async function createAutomationRuntime(input: {
 			agentId: runtime.agentId,
 			runtimeGeneration: runtime.runtimeGeneration,
 		};
+		responseReader = agentManager.trackAssistantResponse(tab.id);
 		if (input.model) {
 			const changed = await sessionRuntimeCoordinator.setRuntimeModel(
 				target,
@@ -478,6 +480,7 @@ async function createAutomationRuntime(input: {
 		return {
 			target,
 			send: async (prompt) => {
+				responseReader?.reset();
 				const result = await sessionRuntimeCoordinator.send({
 					...prompt,
 					sessionId: target!.sessionId,
@@ -486,8 +489,9 @@ async function createAutomationRuntime(input: {
 				if (!result.accepted) throw new Error(result.error);
 			},
 			waitForSettled: () => waitForAutomationRuntime(target!),
-			getMessages: () => agentManager.getMessages(target!.agentId),
+			getAssistantResponse: () => responseReader?.getResponse(),
 			stop: async () => {
+				responseReader?.dispose();
 				const current = target;
 				if (!current) return;
 				await sessionRuntimeCoordinator.abortRuntime(current).catch(() => undefined);
@@ -497,6 +501,7 @@ async function createAutomationRuntime(input: {
 			},
 		};
 	} catch (error) {
+		responseReader?.dispose();
 		if (target) await sessionRuntimeCoordinator.stopRuntime(target).catch(() => undefined);
 		sessionCatalog.removeTransient(record.id);
 		throw error;
@@ -2349,7 +2354,12 @@ function registerIpc() {
 	});
 
 	registerScratchPadIpc({ appLogger });
-	if (dailySummaryReviewBroker) registerAutomationIpc(dailySummaryReviewBroker);
+	if (dailySummaryReviewBroker) {
+		registerAutomationIpc(dailySummaryReviewBroker, {
+			runDailySummaryNow: async () => automationScheduler?.runDailySummaryNow()
+				?? { started: false, reason: "disabled" },
+		});
+	}
 
 	// 安全管理：配置读写 + 会话等级覆盖（SecurityStore 负责持久化与策略快照）
 	registerSecurityIpc({
@@ -2903,6 +2913,12 @@ app.whenReady().then(async () => {
 		sessionScanner,
 		{ create: createAutomationRuntime } satisfies AutomationRuntimeFactory,
 		(request) => dailySummaryReviewBroker!.request(request),
+		appLogger,
+		(code) => {
+			if (mainWindow && !mainWindow.isDestroyed()) {
+				mainWindow.webContents.send(ipcChannels.dailySummaryFailed, code);
+			}
+		},
 	);
 	await automationScheduler.start(settingsStore.get());
 

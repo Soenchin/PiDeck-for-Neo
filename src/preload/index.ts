@@ -1056,8 +1056,12 @@ const api = {
 			subscribe(ipcChannels.settingsApplyWindow, callback),
 	},
 	automation: {
+		onDailySummaryFailed: (callback: (code: import("../shared/types").DailySummaryFailureCode) => void) =>
+			subscribe(ipcChannels.dailySummaryFailed, callback),
 		onDailySummaryReview: (callback: (request: import("../shared/types").DailySummaryReviewRequest) => void) =>
 			subscribe(ipcChannels.dailySummaryReview, callback),
+		runDailySummaryNow: () =>
+			ipcRenderer.invoke(ipcChannels.dailySummaryRunNow) as Promise<import("../shared/types").DailySummaryRunResult>,
 		confirmDailySummary: (id: string, summary: string) =>
 			ipcRenderer.invoke(ipcChannels.dailySummaryConfirm, id, summary) as Promise<boolean>,
 		cancelDailySummary: (id: string) =>

@@ -43,6 +43,7 @@ import {
 	buildActiveBranchEntryIds as buildActiveBranchEntryIdsForDisplay,
 } from "./AgentMessageProjector";
 import { LatestByKeyEmitter } from "./LatestByKeyEmitter";
+import { AssistantResponseCapture } from "./AssistantResponseCapture";
 import { resolveNotificationSessionId } from "./agentUtils";
 import {
 	createStreamGateState,
@@ -95,6 +96,7 @@ function readAskField(input: unknown, key: string): unknown {
 export class AgentManager {
 	private readonly agents = new Map<string, AgentRuntime>();
 	private readonly messages = new Map<string, ChatMessage[]>();
+	private readonly assistantResponses = new AssistantResponseCapture();
 	/** 工具完整结果 LRU 缓存：截断下发后完整文本仅存于此（运行期「查看完整输出」走内存，
 	 *  历史会话回退读会话文件）。键为 pi message id，agent 停止时随 clearAgentState 释放。 */
 	private readonly toolFullTextByMessageId = new Map<string, string>();
@@ -681,6 +683,12 @@ export class AgentManager {
 	recordHostExchange(agentId: string, userText: string, assistantText: string) {
 		this.addMessage(agentId, "user", userText);
 		this.addMessage(agentId, "assistant", assistantText);
+	}
+
+	/** Opt-in structured response reader for internal runtimes, independent of display history. */
+	trackAssistantResponse(agentId: string) {
+		this.requireRuntime(agentId);
+		return this.assistantResponses.track(agentId);
 	}
 
 	getCwd(agentId: string) {
@@ -2410,6 +2418,7 @@ export class AgentManager {
 	 * compactingAgents（compact 的 catch 靠它决定重连）。
 	 */
 	private clearAgentState(agentId: string) {
+		this.assistantResponses.clear(agentId);
 		this.streamingThinking.delete(agentId);
 		this.thinkingSegmentByAgent.delete(agentId);
 		this.streamingAgents.delete(agentId);
@@ -3420,6 +3429,9 @@ export class AgentManager {
 			if (this.isAgentStreamSealed(agentId)) {
 				return;
 			}
+			// message_update done may already have cleared the display identity; raw final
+			// content must still replace the captured response (including an empty body).
+			this.assistantResponses.update(agentId, typed.message);
 			if (this.activeAssistantMessageIds.has(agentId)) {
 				// 先写入 History thinking 并 flush，再发 done 清 live（顺序写进测试）。
 				this.finalizeThinkingIntoMessage(agentId);
@@ -4094,6 +4106,7 @@ export class AgentManager {
 		fallbackDelta = "",
 		options?: { allowEmpty?: boolean },
 	) {
+		this.assistantResponses.update(agentId, partialMessage);
 		const list = this.messages.get(agentId) ?? [];
 		let messageId = this.activeAssistantMessageIds.get(agentId);
 		if (!messageId) {

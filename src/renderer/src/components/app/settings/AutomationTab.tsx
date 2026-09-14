@@ -1,8 +1,9 @@
-import { memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { AppSettings, AutonomousModeSettings, DailySummarySettings } from "../../../../../shared/types";
 import { t } from "../../../i18n";
 import { Input } from "../../ui-shadcn/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui-shadcn/select";
+import { Button } from "../../ui-shadcn/button";
+import { desktopApi } from "../../../desktopApi";
 import { SettingsSection } from "./SettingsStorageTab";
 import { DirtyMarker, SettingBox, SettingRow, SettingSwitchRow } from "./SettingRows";
 
@@ -15,6 +16,22 @@ type AutomationTabProps = {
 /** Automation controls remain in their own tab: both features can create Agents or request memory writes. */
 export const AutomationTab = memo(function AutomationTab(props: AutomationTabProps) {
 	const automation = props.draft.automation;
+	const [manualRunState, setManualRunState] = useState<"idle" | "running" | "started" | "failed" | "disabled" | "already-running">("idle");
+	const mounted = useRef(false);
+	useEffect(() => {
+		mounted.current = true;
+		return () => { mounted.current = false; };
+	}, []);
+	/** IPC 只确认已受理，不把它显示成候选生成成功。主进程拥有运行与审核状态。 */
+	const runDailySummaryNow = async () => {
+		setManualRunState("running");
+		try {
+			const result = await desktopApi.automation.runDailySummaryNow();
+			if (mounted.current) setManualRunState(result.started ? "started" : result.reason ?? "failed");
+		} catch {
+			if (mounted.current) setManualRunState("failed");
+		}
+	};
 	const updateDaily = (patch: Partial<DailySummarySettings>) => props.updateDraft({
 		automation: { ...automation, dailySummary: { ...automation.dailySummary, ...patch } },
 	});
@@ -44,6 +61,15 @@ export const AutomationTab = memo(function AutomationTab(props: AutomationTabPro
 						<Input type="number" min={1} value={String(automation.dailySummary.minTurns)} disabled={!automation.dailySummary.enabled}
 							onChange={(event) => updateDaily({ minTurns: Math.max(1, Number.parseInt(event.target.value, 10) || 1) })} />
 					</SettingRow>
+					<SettingRow title={t("automation.daily.runNow")} description={t("automation.daily.runNowDesc")} alignEnd>
+						<Button size="sm" variant="outline" disabled={!automation.dailySummary.enabled || props.isDirty("automation") || manualRunState === "running"}
+							onClick={() => void runDailySummaryNow()}>
+							{manualRunState === "running" ? t("automation.daily.running") : t("automation.daily.runNow")}
+						</Button>
+					</SettingRow>
+					{manualRunState !== "idle" && manualRunState !== "running" && (
+						<p role="status" className="px-3 py-2 text-caption text-muted-foreground">{t(`automation.daily.${manualRunState}`)}</p>
+					)}
 				</SettingBox>
 			</SettingsSection>
 

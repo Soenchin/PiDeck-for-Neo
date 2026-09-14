@@ -62,6 +62,14 @@ export const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
 	},
 };
 
+export type DailySummaryFailureCode = "output-limit" | "incomplete" | "agent-error" | "no-activity";
+
+/** 手动触发只回执是否受理；候选和错误由审核事件、automation 日志呈现。 */
+export type DailySummaryRunResult = {
+	started: boolean;
+	reason?: "disabled" | "already-running";
+};
+
 export type DailySummaryReviewRequest = {
 	id: string;
 	summary: string;

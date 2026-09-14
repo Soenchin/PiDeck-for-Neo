@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import type { DailySummaryReviewRequest, DailySummarySettings } from "../../shared/types";
 import type { SessionScanner } from "../sessions/SessionScanner";
 import type { AutomationRuntimeFactory } from "./AutomationRuntime";
+import type { AppLogger } from "../logging/AppLogger";
+import { DailySummaryCandidateError, inspectDailySummaryCandidate } from "./dailySummaryCandidate";
 
 export type DailySummaryReviewHandler = (request: DailySummaryReviewRequest) => Promise<string | null>;
 
@@ -18,13 +20,26 @@ export class DailySummaryTask {
 		private readonly sessionScanner: SessionScanner,
 		private readonly runtimes: AutomationRuntimeFactory,
 		private readonly requestReview: DailySummaryReviewHandler,
+		private readonly log: Pick<AppLogger, "info" | "warn">,
 	) {}
 
 	async execute(): Promise<void> {
 		const collected = await this.collectTodaySessions();
 		try {
-			if (collected.files.length === 0 || collected.userTurns < this.config.minTurns) return;
+			if (collected.files.length === 0 || collected.userTurns < this.config.minTurns) {
+				void this.log.info("automation", "Daily summary skipped: insufficient activity", {
+					sessionFiles: collected.files.length,
+					userTurns: collected.userTurns,
+					minTurns: this.config.minTurns,
+				});
+				throw new DailySummaryCandidateError("no-activity");
+			}
 			const date = formatLocalDate(new Date());
+			void this.log.info("automation", "Daily summary collected sessions", {
+				date,
+				sessionFiles: collected.files.length,
+				userTurns: collected.userTurns,
+			});
 			const runtime = await this.runtimes.create({
 				title: `每日总结 ${date}`,
 				model: DAILY_SUMMARY_MODEL,
@@ -36,10 +51,23 @@ export class DailySummaryTask {
 					description: "PiDeck 每日总结候选",
 				});
 				await runtime.waitForSettled();
-				const summary = latestAssistantText(runtime.getMessages());
-				if (!summary) throw new Error("Daily summary agent returned no text");
+				const response = runtime.getAssistantResponse();
+				const candidate = inspectDailySummaryCandidate(response ? [response] : []);
+				// Tag diagnostics now refer only to text blocks, not UI-wrapped reasoning.
+				// Log only the safe projection, never the response containing summary text.
+				void this.log.info("automation", "Daily summary candidate structure", {
+					...candidate.diagnostics,
+					source: response?.source ?? "unavailable",
+					textBlocks: response?.textBlocks ?? 0,
+					thinkingBlocks: response?.thinkingBlocks ?? 0,
+					thinkingCharacters: response?.thinkingCharacters ?? 0,
+				});
+				if (!candidate.ok) throw new DailySummaryCandidateError(candidate.code);
+				const summary = candidate.summary;
+				void this.log.info("automation", "Daily summary candidate is ready for review", { date });
 
 				const approved = await this.requestReview({ id: randomUUID(), summary, date });
+				void this.log.info("automation", "Daily summary review resolved", { date, approved: Boolean(approved?.trim()) });
 				if (!approved?.trim()) return;
 
 				await runtime.send({
@@ -75,7 +103,9 @@ export class DailySummaryTask {
 				await writeFile(path, messages.map((message) => JSON.stringify(message)).join("\n"), "utf8");
 				files.push(path);
 			} catch (error) {
-				console.warn("[DailySummaryTask] Failed to read a daily session", error);
+				void this.log.warn("automation", "Daily summary could not read a session", {
+					error: error instanceof Error ? error.name : "UnknownError",
+				});
 			}
 		}
 		return { files, userTurns };
@@ -88,10 +118,6 @@ export class DailySummaryTask {
 
 function buildSavePrompt(summary: string, date: string): string {
 	return `主人刚刚在 PiDeck 审核并确认了以下每日总结。请使用 memory_commit 保存到 diary/${date}.md，并同步更新 MEMORY.md 索引与 Houkai。分类 diary，memoryType episodic，importance 0.8，tags 为 daily-summary、pideck。\n\n${summary}`;
-}
-
-function latestAssistantText(messages: Array<{ role: string; text: string }>): string | undefined {
-	return [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim())?.text.trim();
 }
 
 function formatLocalDate(date: Date): string {

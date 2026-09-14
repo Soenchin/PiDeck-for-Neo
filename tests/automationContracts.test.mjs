@@ -52,6 +52,7 @@ test("daily scheduler computes the next local 23:55 occurrence", () => {
       "./DailySummaryTask": { DailySummaryTask: class {} },
       "./IdleMonitor": { IdleMonitor: class {} },
       "./PresenceProbe": { checkUserPresence: async () => null },
+      "./dailySummaryCandidate": loadModule("src/main/automation/dailySummaryCandidate.ts"),
     },
   );
   const before = new Date(2026, 8, 8, 23, 54, 30, 0);

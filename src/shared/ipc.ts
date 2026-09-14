@@ -103,6 +103,9 @@ export const ipcChannels = {
 	settingsApplyWindow: "settings:apply-window",
 	/** 主进程 → 渲染：每日总结候选已生成，等待用户编辑审核。 */
 	dailySummaryReview: "automation:daily-summary-review",
+	dailySummaryFailed: "automation:daily-summary-failed",
+	/** 用户主动生成一份待审核候选；与定时任务同流程，不会绕过审核写入记忆。 */
+	dailySummaryRunNow: "automation:daily-summary-run-now",
 	dailySummaryConfirm: "automation:daily-summary-confirm",
 	dailySummaryCancel: "automation:daily-summary-cancel",
 	skillsList: "skills:list",
