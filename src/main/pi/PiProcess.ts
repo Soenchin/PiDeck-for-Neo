@@ -191,7 +191,10 @@ export class PiProcess extends EventEmitter {
   }
 
   async start(sessionPath?: string, trustOverride?: "approve" | "no-approve", noSession?: boolean) {
-    if (this.proc) return this.rpc!;
+    if (this.proc) {
+      if (this.rpc) return this.rpc;
+      throw new Error("pi transport is closed; waiting for process exit");
+    }
 
     // 预检会话文件：旧版 PiDeck 私有 sessionName 头行会让 pi 拒绝加载（exit 1）。
     // 修复失败不阻塞启动——pi 自身的报错会进入启动诊断，比静默吞掉更有价值。
@@ -376,7 +379,25 @@ export class PiProcess extends EventEmitter {
       throw err;
     }
 
-    this.rpc = new PiRpcClient(this.proc.stdin, this.proc.stdout);
+    const child = this.proc;
+    const rpc = new PiRpcClient(child.stdin, child.stdout);
+    this.rpc = rpc;
+    let eofTimer: NodeJS.Timeout | undefined;
+    const invalidateTransport = (error: Error) => {
+      if (this.rpc !== rpc) return;
+      // A closed transport is not a ready runtime. Stop its child and reuse the existing error-state path.
+      this.rpc = undefined;
+      if (eofTimer) { clearTimeout(eofTimer); eofTimer = undefined; }
+      if (this.diagnostics) this.diagnostics.stderr.push(error.message);
+      // Mark the runtime failed before a possibly synchronous mock/child exit; never auto-restart it as clean.
+      try { this.emit("error", error); } finally { child.kill(); }
+    };
+    rpc.on("transport-fatal", invalidateTransport);
+    rpc.on("transport-eof", (error: Error) => {
+      // Pipe EOF and child exit are separate events. Preserve clean exit recovery, but never wait forever.
+      eofTimer = setTimeout(() => invalidateTransport(error), 1000);
+      eofTimer.unref();
+    });
 
     this.rpc.on("event", event => this.emit("event", event));
     this.rpc.on("protocol-error", line => this.emit("protocol-error", line));
@@ -406,6 +427,7 @@ export class PiProcess extends EventEmitter {
       this.emit("error", error);
     });
     this.proc.on("exit", (code, signal) => {
+      if (eofTimer) { clearTimeout(eofTimer); eofTimer = undefined; }
       // 退出时更新诊断信息
       if (this.diagnostics) {
         this.diagnostics.exitCode = code;
@@ -413,10 +435,9 @@ export class PiProcess extends EventEmitter {
       }
       // pi 退出后还原临时停放的扩展，保证 CLI 仍能加载 codeisland。
       this.restoreParkedExtensions();
-      this.rpc?.close(new Error(`pi exited: code=${code ?? "null"}, signal=${signal ?? "null"}`));
+      rpc.close(new Error(`pi exited: code=${code ?? "null"}, signal=${signal ?? "null"}`));
       this.emit("exit", { code, signal });
-      this.proc = undefined;
-      this.rpc = undefined;
+      if (this.proc === child) { this.proc = undefined; this.rpc = undefined; }
     });
 
     return this.rpc;
@@ -436,7 +457,7 @@ export class PiProcess extends EventEmitter {
   }
 
   isRunning(): boolean {
-    return this.proc !== undefined && this.rpc !== undefined;
+    return this.proc !== undefined && this.rpc !== undefined && !this.rpc.isClosed();
   }
 
   stop() {

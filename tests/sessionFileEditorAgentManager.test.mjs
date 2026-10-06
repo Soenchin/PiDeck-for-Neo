@@ -64,6 +64,8 @@ function loadAgentManager() {
       if (specifier === "./agentSessionIdentity") return { buildAgentSessionKey: () => undefined };
       if (specifier === "./SessionFileEditor") return { SessionFileEditor: class {} };
       if (specifier === "./SessionHistoryReader") return { SessionHistoryReader: class {} };
+      if (specifier === "./HistoryReloadController") return loadTsCommonJs("src/main/pi/HistoryReloadController.ts", { stubs: { "node:fs/promises": { stat: async () => ({ size: 128 }) } } });
+      if (specifier === "./SessionDisplayIndex") return loadTsCommonJs("src/main/pi/SessionDisplayIndex.ts");
       if (specifier === "./AgentMessageProjector") {
         return {
           AgentMessageProjector: class {},

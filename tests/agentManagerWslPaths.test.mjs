@@ -53,10 +53,19 @@ function loadAgentManager() {
 		readdir: [],
 		readdirSync: [],
 		statSync: [],
+		stat: [],
+		open: [],
 		unlink: [],
 		writeFile: [],
 	};
+	const snapshot = Buffer.from(`${JSON.stringify({ id: "entry-user", type: "message", message: { role: "user", content: "hello" } })}\n`);
+	const fileStat = { size: snapshot.length, mtimeMs: 1, ctimeMs: 1, birthtimeMs: 1, dev: 1, ino: 1 };
 	const fsPromises = {
+		stat: async (p) => { calls.stat.push(p); return fileStat; },
+		open: async (p) => {
+			calls.open.push(p);
+			return { stat: async () => fileStat, close: async () => {}, read: async (buffer, offset, length, position) => ({ bytesRead: snapshot.copy(buffer, offset, position, position + length) }) };
+		},
 		copyFile: async (...args) => { calls.copyFile.push(args); },
 		readFile: async (...args) => {
 			calls.readFile.push(args);
@@ -69,15 +78,7 @@ function loadAgentManager() {
 		unlink: async (...args) => { calls.unlink.push(args); },
 		writeFile: async (...args) => { calls.writeFile.push(args); },
 	};
-	const historyReaderModule = { exports: {} };
-	vm.runInNewContext(transpile("src/main/pi/SessionHistoryReader.ts"), {
-		Buffer,
-		console: { log() {}, warn() {}, error() {} },
-		exports: historyReaderModule.exports,
-		module: historyReaderModule,
-		Promise,
-		require: (id) => id === "node:fs/promises" ? fsPromises : require(id),
-	}, { filename: "SessionHistoryReader.ts" });
+	const historyReaderModule = { exports: loadTsCommonJs("src/main/pi/SessionHistoryReader.ts", { stubs: { "node:fs/promises": fsPromises } }) };
 	class SessionFileEditor {
 		async truncateForResend({ file }) {
 			const content = await fsPromises.readFile(file.hostPath, "utf8");
@@ -125,6 +126,8 @@ function loadAgentManager() {
 			if (id === "./agentSessionIdentity") return { buildAgentSessionKey: () => undefined };
 			if (id === "./SessionFileEditor") return { SessionFileEditor };
 			if (id === "./SessionHistoryReader") return historyReaderModule.exports;
+			if (id === "./HistoryReloadController") return loadTsCommonJs("src/main/pi/HistoryReloadController.ts", { stubs: { "node:fs/promises": fsPromises } });
+			if (id === "./SessionDisplayIndex") return loadTsCommonJs("src/main/pi/SessionDisplayIndex.ts");
 			if (id === "./AgentMessageProjector") {
 				return {
 					AgentMessageProjector: class {},
@@ -183,10 +186,8 @@ test("maps WSL Session file operations to host paths while retaining Linux proto
 		wslPaths.toWslLinuxPath("/root/.pi/agent/sessions/Session.jsonl", manager.wslEnvironment),
 		wslPaths.toWslLinuxPath("/root/.pi/agent/sessions/session.jsonl", manager.wslEnvironment),
 	);
-	const loadDecision = manager.getHistoryAutoLoadDecision(sessionPath);
-	assert.equal(loadDecision.shouldLoad, true);
-	assert.equal(loadDecision.sizeBytes, 128);
-	await manager.readRecentMessagesFromSessionFile(sessionPath, 1);
+	const recent = await manager.sessionHistoryReader.readRecentMessages(sessionPath, 1);
+	assert.equal(recent.data.messages[0].content, "hello");
 	manager.agents.set("agent", {
 		process: { client: {} },
 		tab: {
@@ -206,9 +207,9 @@ test("maps WSL Session file operations to host paths while retaining Linux proto
 	await manager.prepareResendFromMessage("agent", "message");
 
 	const expectedHostPath = "\\\\wsl.localhost\\Ubuntu-24.04\\root\\.pi\\agent\\sessions\\session.jsonl";
-	assert.equal(calls.statSync[0], expectedHostPath);
+	assert.equal(calls.stat[0], expectedHostPath);
+	assert.equal(calls.open[0], expectedHostPath);
 	assert.equal(calls.readFile[0][0], expectedHostPath);
-	assert.equal(calls.readFile[1][0], expectedHostPath);
 	assert.equal(calls.writeFile[0][0], expectedHostPath);
 });
 

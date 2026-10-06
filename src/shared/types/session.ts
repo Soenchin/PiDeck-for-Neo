@@ -44,7 +44,7 @@ export type SessionMessagePage = {
 	 * 到顶（nextBefore === null）时缺省。
 	 */
 	nextBeforeEntryId?: string;
-	/** 会话文件版本（mtime:size）：渲染层比对检测压缩/外部改写，变化即丢弃已缓存的历史前缀。 */
+	/** 不透明会话文件快照版本（文件身份/ctime/mtime/size）；渲染层只比较，不解析其格式。 */
 	indexVersion?: string;
 };
 

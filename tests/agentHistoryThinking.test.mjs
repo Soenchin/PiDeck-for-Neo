@@ -79,30 +79,8 @@ function loadAgentManagerModule() {
 		{ filename: "cacheHitStats.ts" },
 	);
 	const messageProjectorModule = loadAgentMessageProjectorModule();
-	const historyReaderModule = { exports: {} };
-	const historyReaderOutput = ts.transpileModule(
-		readFileSync("src/main/pi/SessionHistoryReader.ts", "utf8"),
-		{
-			compilerOptions: {
-				module: ts.ModuleKind.CommonJS,
-				target: ts.ScriptTarget.ES2022,
-				esModuleInterop: true,
-			},
-			fileName: "SessionHistoryReader.ts",
-		},
-	).outputText;
-	vm.runInNewContext(historyReaderOutput, {
-		module: historyReaderModule,
-		exports: historyReaderModule.exports,
-		require: nodeRequire,
-		Buffer,
-		Date,
-		Map,
-		Set,
-		Promise,
-		JSON,
-		console,
-	}, { filename: "SessionHistoryReader.ts" });
+	// Load the real reader dependency graph; domain extraction must not turn the test into a mock reader.
+	const historyReaderModule = { exports: loadTsCommonJs("src/main/pi/SessionHistoryReader.ts") };
 	const output = ts.transpileModule(
     readFileSync("src/main/pi/AgentManager.ts", "utf8"),
     {
@@ -138,6 +116,8 @@ function loadAgentManagerModule() {
 			return { SessionFileEditor: class {} };
 		}
 		if (specifier === "./SessionHistoryReader") return historyReaderModule.exports;
+        if (specifier === "./HistoryReloadController") return loadTsCommonJs("src/main/pi/HistoryReloadController.ts");
+        if (specifier === "./SessionDisplayIndex") return loadTsCommonJs("src/main/pi/SessionDisplayIndex.ts");
       if (specifier === "./sessionEntryIds") {
         return {
           assertResendRootEntry: () => undefined,

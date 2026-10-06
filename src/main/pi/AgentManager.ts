@@ -1,7 +1,7 @@
 import { app, type BrowserWindow, Notification } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import type {
@@ -26,7 +26,8 @@ import { listActiveBuiltInExtensionPaths } from "../extensions/builtInExtensions
 import type { RpcResponse } from "./PiRpcClient";
 import { formatBashToolMessage } from "./bashResult";
 import type { MainProcessTranslationKey } from "../../shared/i18n/mainProcessCopy";
-import { mergeHistoryWithPreservedMessages, stabilizeReloadedMessageIds } from "./historyMessages";
+import { stabilizeReloadedMessageIds } from "./historyMessages";
+import { HistoryReloadController } from "./HistoryReloadController";
 import {
 	buildAgentSessionKey,
 	toAbsoluteSessionPath,
@@ -137,6 +138,7 @@ export class AgentManager {
 	private readonly toolExecutingByAgent = new Map<string, string | null>();
 	private readonly sessionFileEditor: SessionFileEditor;
 	private readonly sessionHistoryReader: SessionHistoryReader;
+	private readonly historyReloads = new HistoryReloadController();
 	private readonly messageProjector: AgentMessageProjector;
 	/** 流式消息 emit 节流状态。 */
 	private readonly messageFlushTimers = new Map<string, NodeJS.Timeout>();
@@ -198,19 +200,8 @@ export class AgentManager {
 	 * 这补偿了 Pi 在某些边缘情况下不发送 agent_settled 导致动画永久卡住的问题。
 	 */
 	private static readonly AGENT_SETTLED_TIMEOUT_MS = 5000;
-	/**
-	 * 超过该大小的历史会话跳过 get_messages RPC，改为直接从 JSONL 文件尾部读取最近 N 条消息。
-	 * pi 当前不支持 limit/cursor，40MB JSONL 会以单行大 JSON 返回，主进程 JSON.parse 会短暂冻结整个应用。
-	 * 文件直接读取仅解析近尾部少量消息，避免大会话加载导致的界面冻结。
-	 */
-	private static readonly MAX_AUTO_HISTORY_LOAD_BYTES = 5 * 1024 * 1024;
 	/** 工具完整结果 LRU 上限（见 toolFullTextByMessageId）。 */
 	private static readonly TOOL_FULL_TEXT_LRU_LIMIT = 200;
-	/**
-	 * 大会话直接从文件尾部读取时，最多保留的最近消息轮次（每条 user 消息算一轮）。
-	 * 12 轮 = 4 次 3 轮翻页，覆盖绝大多数回看需求；更早历史走磁盘轮次分页。
-	 */
-	private static readonly MAX_HISTORY_LOAD_TURNS = 12;
 	/**
 	 * 运行期消息缓存上限（轮）：agent_settled 后把主进程数组裁到最近 N 轮。
 	 * 12 轮覆盖激活窗口（3 轮）+ 三级缓存的回看命中率；头部更早历史随时可从文件分页读回。
@@ -704,33 +695,20 @@ export class AgentManager {
 		const t0 = Date.now();
 		const runtime = this.requireRuntime(agentId);
 
-		// 并行请求：get_messages 和 get_entries 互不依赖，可以同时发起
-		// 如果已有提前发出的请求（earlyMessagesPromise），直接复用，避免重复发送
-		const messagesPromise = earlyMessagesPromise ?? runtime.process.client.request({
-			type: "get_messages",
-		}, this.rpcTimeoutMs);
-
-		let entriesPromise: Promise<any> | undefined;
-		if (!skipEntries) {
-			entriesPromise = runtime.process.client.request({
-				type: "get_entries",
-			}, 15_000).catch(() => {
-				// get_entries 失败时不阻塞消息加载；编辑/删除走 fallback（_piDeckMsgSeq 计数）
-				void this.appLogger?.warn("agent", "Failed to get_entries for entryId mapping", { agentId });
-				return undefined;
-			});
-		}
-
-		const [response, entriesResult] = await Promise.all([
-			messagesPromise,
-			entriesPromise ?? Promise.resolve(undefined),
-		]);
+		const reload = this.historyReloads.begin(agentId, runtime, () => this.agents.get(agentId), this.messages.get(agentId) ?? [],
+			(message) => this.activeAssistantMessageIds.get(agentId) === message.id
+				|| [...(this.toolMessageIds.get(agentId)?.values() ?? [])].includes(message.id));
+		try {
+		return await reload.retrySnapshot(async () => {
+		const loaded = await reload.read(this.sessionHistoryReader, (path) => this.toSessionHostPath(path), this.rpcTimeoutMs, skipEntries, earlyMessagesPromise);
+		if (!loaded || !reload.isCurrent()) return this.messages.get(agentId) ?? [];
+		const { response, entriesResult, localData } = loaded;
 		const t1 = Date.now();
 
 		const rawMessages = (response.data as { messages?: unknown[] } | undefined)?.messages ?? [];
 
 		// 解析 entryId 列表（需要先于 convertAgentMessages，用于把消息关联到 pi 的会话分支）。
-		let activeEntryIds: string[] | undefined;
+		let activeEntryIds: string[] | undefined = localData?.entryIds;
 		if (entriesResult) {
 			const entriesData = entriesResult.data as
 				| { entries?: Array<{ id: string; parentId: string | null; type?: string; message?: { role?: string } }>; leafId?: string }
@@ -758,7 +736,7 @@ export class AgentManager {
 		// 需要用它作为首次补历史的数值游标（渲染层 before=windowStartFilePos）。
 		let headOffset: number;
 		if (activeEntryIds) {
-			headOffset = droppedRoleCount;
+			headOffset = (localData?.headOffset ?? 0) + droppedRoleCount;
 		} else if (runtime.tab.sessionPath) {
 			// get_entries 失败/未启用（skipEntries）时同样尽力提供数值游标：
 			// 否则渲染层「加载更多对话」因 entryId 锚点与 windowStartFilePos 双缺失而静默放弃，
@@ -777,13 +755,13 @@ export class AgentManager {
 		} else {
 			headOffset = -1; // 未知：不提供 windowStartFilePos，渲染层回退 entryId 锚点
 		}
-		this.messageHeadOffsetByAgent.set(agentId, headOffset);
 
 		// 解析会话文件里的压缩记录：拿到所有压缩段摘要 + 归档消息。
 		// pi 的 get_messages 对压缩会话只返回压缩后的消息，通常不带压缩摘要；
 		// 这里从原始会话文件补回：压缩摘要卡片 + 归档消息（支持展开查看压缩前内容）。
 		// 若 RPC 已经返回了压缩/分支摘要，则不再重复补，避免时间线出现两张摘要卡片。
 		let compactionSummaryRaw: unknown | null = null;
+		let compactionCount: number | undefined;
 		const rpcAlreadyHasSummary = rawMessages.some(
 			(m) => (m as { role?: unknown })?.role === "compactionSummary"
 				|| (m as { role?: unknown })?.role === "branchSummary",
@@ -795,7 +773,7 @@ export class AgentManager {
 			rawMessageCount: rawMessages.length,
 		});
 		if (runtime.tab.sessionPath) {
-			const archiveData = await this.scanCompactions(runtime.tab.sessionPath).catch((err) => {
+			const archiveData = localData?.compactions ? { compactions: localData.compactions } : await this.scanCompactions(runtime.tab.sessionPath).catch((err) => {
 			void this.appLogger?.warn("agent", "Failed to parse session archives", {
 				agentId,
 				sessionPath: runtime.tab.sessionPath,
@@ -803,6 +781,9 @@ export class AgentManager {
 			});
 			return null;
 		});
+			const snapshotCurrent = await reload.fileIsCurrent((path) => this.toSessionHostPath(path));
+			if (!reload.isCurrent()) return this.messages.get(agentId) ?? [];
+			if (!snapshotCurrent) throw new Error("SESSION_FILE_CHANGED: after archive read");
 			if (archiveData && archiveData.compactions.length > 0) {
 				void this.appLogger?.info("agent", "Session archives parsed", {
 					agentId,
@@ -826,17 +807,22 @@ export class AgentManager {
 						},
 					};
 				}
-				// 把压缩次数写回 tab，供前端（会话头/标签）展示"已压缩 N 次"。
-				if (runtime.tab.compactionCount !== archiveData.compactions.length) {
-					runtime.tab.compactionCount = archiveData.compactions.length;
-					this.emitState();
-				}
+				compactionCount = archiveData.compactions.length;
 			}
 		}
 
 		// 将压缩摘要插到消息最前面（在 trim 之后，避免被按 user 轮次切掉）。
 		const finalRaw = compactionSummaryRaw ? [compactionSummaryRaw, ...trimmed] : trimmed;
 
+		// No await between the final lease check and commit: replaced runtime/file/request cannot write back.
+		const snapshotCurrent = await reload.fileIsCurrent((path) => this.toSessionHostPath(path));
+		if (!reload.isCurrent()) return this.messages.get(agentId) ?? [];
+		if (!snapshotCurrent) throw new Error("SESSION_FILE_CHANGED: before history commit");
+		this.messageHeadOffsetByAgent.set(agentId, headOffset);
+		if (compactionCount !== undefined && runtime.tab.compactionCount !== compactionCount) {
+			runtime.tab.compactionCount = compactionCount;
+			this.emitState();
+		}
 		const messages = this.convertAgentMessages(agentId, finalRaw, activeEntryIds);
 		const t2 = Date.now();
 		void this.appLogger?.info("agent", "Agent messages loaded", {
@@ -852,11 +838,9 @@ export class AgentManager {
 		this.abortedDuringAsk.delete(agentId);
 		const nextMessages = stabilizeReloadedMessageIds(
 			this.messages.get(agentId) ?? [],
-			mergeHistoryWithPreservedMessages(
-				messages,
-				this.messages.get(agentId) ?? [],
-				options?.preserveMessagesAfter,
-			),
+			reload.preserve(messages, this.messages.get(agentId) ?? [], options?.preserveMessagesAfter,
+				(message) => this.activeAssistantMessageIds.get(agentId) === message.id
+					|| [...(this.toolMessageIds.get(agentId)?.values() ?? [])].includes(message.id)),
 		);
 		// 重载后把进行中的消息身份（activeAssistantMessageIds/toolMessageIds）从
 		// 运行期副本重定向到投影版：后续事件继续更新投影版（位置正确、单份），
@@ -875,17 +859,14 @@ export class AgentManager {
 			),
 		);
 		// 文件版本随本次加载快照：压缩/外部改写会改变 mtime:size，渲染层据此丢弃 disk 前缀
-		if (runtime.tab.sessionPath) {
-			try {
-				const version = await stat(this.toSessionHostPath(runtime.tab.sessionPath));
-				this.sessionFileVersionByAgent.set(agentId, `${version.mtimeMs}:${version.size}`);
-			} catch {
-				this.sessionFileVersionByAgent.delete(agentId);
-			}
-		}
+		const version = reload.version();
+		if (version) this.sessionFileVersionByAgent.set(agentId, version);
+		else this.sessionFileVersionByAgent.delete(agentId);
 		this.refreshAutoTitle(agentId);
 		this.scheduleMessageEmit(agentId, true);
 		return nextMessages;
+		}, () => this.messages.get(agentId) ?? []);
+		} finally { reload.finish(); }
 	}
 
 	async create(rawInput: CreateAgentInput) {
@@ -918,27 +899,6 @@ export class AgentManager {
 				wslUser: this.wslEnvironment.user,
 			}
 			: { environment: "native" };
-	}
-
-	private getHistoryAutoLoadDecision(sessionPath?: string): { shouldLoad: boolean; sizeBytes?: number } {
-		if (!sessionPath) return { shouldLoad: true };
-		try {
-			const sizeBytes = statSync(this.toSessionHostPath(sessionPath)).size;
-			return {
-				shouldLoad: sizeBytes <= AgentManager.MAX_AUTO_HISTORY_LOAD_BYTES,
-				sizeBytes,
-			};
-		} catch {
-			// 无法读取大小时保留旧行为尝试加载，避免临时文件/权限异常直接导致历史不可见。
-			return { shouldLoad: true };
-		}
-	}
-
-	private async readRecentMessagesFromSessionFile(
-		sessionPath: string,
-		maxTurns: number,
-	): Promise<RpcResponse> {
-		return this.sessionHistoryReader.readRecentMessages(sessionPath, maxTurns);
 	}
 
 	private async scanCompactions(
@@ -1082,7 +1042,6 @@ export class AgentManager {
 		// 启动 get_state 吃用户配置的 rpcTimeout：WSL/代理/慢机器上 pi 首次响应可能超过默认 30s，
 		// 超时即触发「Pi RPC 启动失败」诊断卡；与诊断指引（调大设置里的 RPC 超时）保持一致。
 		const statePromise = client.request({ type: "get_state" }, this.rpcTimeoutMs);
-		const historyLoadDecision = this.getHistoryAutoLoadDecision(input.sessionPath);
 
 
 		try {
@@ -1115,15 +1074,13 @@ export class AgentManager {
 			// 同时插入一条临时系统消息，给用户明确的加载反馈，避免空白页面看起来像冻结。
 			// preserveMessagesAfter 保护加载期间用户新发的消息/流式回复，防止历史结果回写时覆盖当前会话。
 			// 状态就绪后发送 get_messages，确保 pi 进程已完全加载会话文件，避免竞态。
-			const messagesPromise = historyLoadDecision.shouldLoad
-				? client.request({ type: "get_messages" }, this.rpcTimeoutMs)
-				: undefined;
 			const preserveMessagesAfter = Date.now();
-			if (messagesPromise) {
-				void this.loadMessages(id, true, messagesPromise, { preserveMessagesAfter })
+			{
+				void this.loadMessages(id, true, undefined, { preserveMessagesAfter })
 					.catch(() =>
 						new Promise<void>((resolve) => setTimeout(resolve, 800))
-							.then(() => this.loadMessages(id, true, undefined, { preserveMessagesAfter })),
+							.then(() => this.agents.get(id) === runtime && runtime.process === process
+								? this.loadMessages(id, true, undefined, { preserveMessagesAfter }) : undefined),
 					)
 					.then(() => {
 						void this.appLogger?.info("agent", "Agent history loaded in background", {
@@ -1132,6 +1089,7 @@ export class AgentManager {
 						});
 					})
 					.catch((error) => {
+						if (this.agents.get(id) !== runtime || runtime.process !== process) return;
 						const list = this.messages.get(id) ?? [];
 						const loadingMessage = list.find((message) => message.meta?.historyLoading === true);
 						if (loadingMessage) {
@@ -1147,44 +1105,6 @@ export class AgentManager {
 						}
 						void this.appLogger?.warn("agent", "Agent history background load failed", {
 							agentId: id,
-							error: error instanceof Error ? error.message : String(error),
-						});
-					});
-			} else if (input.sessionPath) {
-				void this.loadMessages(
-					id,
-					true,
-					this.readRecentMessagesFromSessionFile(
-						input.sessionPath,
-						AgentManager.MAX_HISTORY_LOAD_TURNS,
-					),
-					{ preserveMessagesAfter },
-				)
-					.then(() => {
-						void this.appLogger?.info("agent", "Agent recent history loaded from file", {
-							agentId: id,
-							sessionPath: input.sessionPath,
-							sizeBytes: historyLoadDecision.sizeBytes,
-							totalMs: Date.now() - preserveMessagesAfter,
-						});
-					})
-					.catch((error) => {
-						const list = this.messages.get(id) ?? [];
-						const loadingMessage = list.find((message) => message.meta?.historyLoading === true);
-						if (loadingMessage) {
-							loadingMessage.role = "error";
-							loadingMessage.text = "历史会话加载失败，可继续使用当前 Agent 或重新打开会话重试。";
-							loadingMessage.meta = {
-								historyLoading: "failed",
-								i18nKey: "diagnostic.historyLoadFailed",
-								debugDetails: error instanceof Error ? error.message : String(error),
-							};
-							loadingMessage.timestamp = Date.now();
-							this.scheduleMessageEmit(id, true);
-						}
-						void this.appLogger?.warn("agent", "Agent recent history file load failed", {
-							agentId: id,
-							sessionPath: input.sessionPath,
 							error: error instanceof Error ? error.message : String(error),
 						});
 					});
@@ -2190,10 +2110,7 @@ export class AgentManager {
 		runtime: AgentRuntime,
 	): Promise<string | undefined> {
 		try {
-			const response = await runtime.process.client.request(
-				{ type: "get_entries" },
-				15_000,
-			);
+			const response = await this.historyReloads.requestActiveLeaf(runtime, this.sessionHistoryReader, (path) => this.toSessionHostPath(path));
 			if (!response.success) return undefined;
 			const leafId = (response.data as { leafId?: unknown } | undefined)?.leafId;
 			return typeof leafId === "string" && leafId ? leafId : undefined;
@@ -2725,6 +2642,7 @@ export class AgentManager {
 		this.userInitiatedStop.add(agentId);
 		const process = runtime.process;
 		this.agents.delete(agentId);
+		this.historyReloads.clear(agentId);
 		this.messages.delete(agentId);
 		this.messageDirtyFromByAgent.delete(agentId);
 		this.activeToolCallsByAgent.delete(agentId);
@@ -2782,6 +2700,8 @@ export class AgentManager {
 	}
 
 	stopAll() {
+		this.historyReloads.clear();
+		this.sessionHistoryReader.dispose();
 		// 应用退出时统一清理所有 pi 子进程，避免后台 agent 残留占用模型或文件句柄。
 		for (const runtime of this.agents.values()) {
 			this.userInitiatedStop.add(runtime.tab.id);
@@ -2964,7 +2884,7 @@ export class AgentManager {
 			return;
 		}
 		// 自动压缩 / 进程干净退出（exit code 0）且有会话路径 → 尝试一次自动重连
-		if (!this.autoRestartAttempted.has(agentId) && tab.sessionPath && payload.code === 0) {
+		if (!this.autoRestartAttempted.has(agentId) && tab.sessionPath && tab.status !== "error" && payload.code === 0) {
 			this.autoRestartAttempted.add(agentId);
 			tab.status = "starting";
 			this.emitState();
@@ -3036,7 +2956,7 @@ export class AgentManager {
 		}
 		// 自动压缩也可能发生在重连后的进程中；继续复用同一会话文件重附加，
 		// 但仍用 autoRestartAttempted 做单次保护，避免真正异常退出时无限重启。
-		if (!this.autoRestartAttempted.has(agentId) && runtime.tab.sessionPath && payload.code === 0) {
+		if (!this.autoRestartAttempted.has(agentId) && runtime.tab.sessionPath && runtime.tab.status !== "error" && payload.code === 0) {
 			this.autoRestartAttempted.add(agentId);
 			runtime.tab.status = "starting";
 			this.emitState();
@@ -4136,6 +4056,11 @@ export class AgentManager {
 			}
 		}
 		const existing = existingIndex >= 0 ? list[existingIndex] : undefined;
+		// History snapshots and live events must carry Pi's source identity timestamp, not receipt time.
+		// Thinking can create a skeleton first; replace that local timestamp when the first Pi partial arrives.
+		const piTimestamp = partialMessage && typeof partialMessage === "object"
+			&& "timestamp" in partialMessage && typeof partialMessage.timestamp === "number"
+			&& Number.isFinite(partialMessage.timestamp) ? partialMessage.timestamp : undefined;
 		const extractedText =
 			partialMessage && typeof partialMessage === "object"
 				? this.messageProjector.extractText((partialMessage as any).content)
@@ -4163,7 +4088,8 @@ export class AgentManager {
 			if (finalStopReason) {
 				existing.stopReason = finalStopReason;
 			}
-			// 保留原始时间戳，不随 delta 刷新。
+			if (piTimestamp !== undefined) existing.timestamp = piTimestamp;
+			// Pi 的消息时间戳跨 delta 稳定；无源时间戳时保留本地骨架时间。
 			this.markMessagesDirtyFrom(agentId, existingIndex);
 		} else {
 			const text = extractedText || fallbackDelta;
@@ -4174,7 +4100,7 @@ export class AgentManager {
 				agentId,
 				role: "assistant",
 				text: text || "",
-				timestamp: Date.now(),
+				timestamp: piTimestamp ?? Date.now(),
 				...(finalStopReason ? { stopReason: finalStopReason } : {}),
 			});
 			this.markMessagesDirtyFrom(agentId, list.length - 1);

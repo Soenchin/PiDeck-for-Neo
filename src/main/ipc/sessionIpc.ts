@@ -438,8 +438,7 @@ export function registerSessionIpc(deps: SessionIpcDeps): void {
 		async (_event, sessionId: string) => {
 			const entry = sessionCatalog.get(sessionId);
 			if (!entry?.filePath) return [];
-			const content = await sessionScanner.readSessionRawText(entry.filePath);
-			return agentManager.readSessionDisplayMessages(entry.filePath, sessionId, content);
+			return agentManager.readSessionDisplayMessages(entry.filePath, sessionId);
 		},
 	);
 	ipcMain.handle(

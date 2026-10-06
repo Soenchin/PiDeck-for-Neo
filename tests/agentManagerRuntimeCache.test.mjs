@@ -6,6 +6,7 @@ import test from "node:test";
 import { loadTsCommonJs } from "./helpers/loadTsCommonJs.mjs";
 
 const { AgentManager } = loadTsCommonJs("src/main/pi/AgentManager.ts");
+const { sessionFileVersion } = loadTsCommonJs("src/main/pi/SessionDisplayIndex.ts");
 
 const entryLine = (id, parentId, role, text) => JSON.stringify({
   id, parentId, type: "message",
@@ -135,7 +136,7 @@ test("tryReadRuntimeTurnPage cache pages carry the file indexVersion and cursor 
     });
     assert.ok(page, "cache hit expected");
     // 与文件路径同口径的版本串：渲染层据此检测压缩/外部改写
-    assert.equal(page.indexVersion, `${version.mtimeMs}:${version.size}`);
+    assert.equal(page.indexVersion, sessionFileVersion(version));
     // 数值游标（文件消息下标）与 entryId 游标解析到同一页；
     // 注意：before 落在缓存最旧条目（pos===0）时正确行为是返回 null 交给文件路径。
     const byBefore = await manager.tryReadRuntimeTurnPage(sessionPath, "agent-1", {
